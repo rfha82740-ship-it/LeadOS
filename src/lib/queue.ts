@@ -333,7 +333,8 @@ function socialHandleName(url: string): string | null {
     // facebook.com/pages/<Name>/<id> or facebook.com/<PageName> (not groups/profile)
     if (/(^|\.)facebook\.com$/.test(host)) {
       if (seg[0] === "pages" && seg[1]) return seg[1].replace(/[-_]+/g, " ")
-      if (["groups", "profile.php", "people", "share", "story", "watch", "photo", "permalink", "hashtag"].includes(seg[0])) return null
+      // ads/library وغيرها = مسارات مكتبات الإعلانات/المساعدة — مش أسماء صفحات (كانت بتحول اسم المعلن لـ"Ads")
+      if (["groups", "profile.php", "people", "share", "story", "watch", "photo", "permalink", "hashtag", "ads", "library", "ad_library", "help", "policies", "business", "events", "reel", "gaming"].includes(seg[0])) return null
       if (seg[0] && !/^\d+$/.test(seg[0]) && seg[0].length >= 3) return seg[0].replace(/[-_.]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
       return null
     }
