@@ -1,0 +1,56 @@
+# LeadOS — سكرابر مكتبة إعلانات فيسبوك (مستودع عام = دقايق Actions مجانية بلا سقف)
+# بيفتح مكتبة الإعلانات بمتصفح حقيقي أنونيموس، بيستخرج المعلنين الممولين
+# (أصحاب الميزانيات الحقيقية)، ويدفعهم ليدز AD_SPENDER لـLeadOS عبر webhook الاستقبال.
+name: LeadOS Ads Library
+
+on:
+  schedule:
+    - cron: "7 */2 * * *"       # كل ساعتين
+  workflow_dispatch:             # زر تشغيل يدوي
+    inputs:
+      queries:
+        description: "استعلامات مفصولة بفاصلة (فاضي = القائمة الافتراضية)"
+        required: false
+        default: ""
+      max_queries:
+        description: "أقصى عدد استعلامات في التشغيلة"
+        required: false
+        default: "5"
+
+concurrency:
+  group: leados-adslib
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LEADOS_BASE_URL: ${{ secrets.LEADOS_BASE_URL }}
+      LEADOS_API_KEY: ${{ secrets.LEADOS_API_KEY }}
+      COUNTRY: "EG"
+      QUERIES: ${{ github.event.inputs.queries || '' }}
+      MAX_QUERIES: ${{ github.event.inputs.max_queries || '5' }}
+      TZ: Africa/Cairo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: تثبيت كروميوم الحقيقي (playwright)
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: اسكراب مكتبة الإعلانات + دفع المعلنين
+        run: python scripts/adslib/scraper.py
+
+      - name: حفظ عينة التشخيص عند الفشل
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adslib-debug
+          path: adslib-sample.html
+          retention-days: 3
