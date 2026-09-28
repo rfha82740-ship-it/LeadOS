@@ -46,7 +46,29 @@ JS_EXTRACT = r"""
   const seen = new Set();
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   let node;
-  const UI = /^(see|open|active|inactive|library|started|platforms|filters|sort|remove|drop|summary|ad |advertiser|results|about|faq|login|log in|privacy|terms|cookies|report|get |download|learn)/i;
+  const UI = /^(ads?|ad library|active|inactive|see ad|see ad details|why am i seeing this|log in|sign up|learn more|open|see summary details|report|about|faq|privacy|terms|cookies|started running|platforms|library id)$/i;
+  const pageName = (a) => {
+    let t = (a.innerText || "").trim().replace(/\s+/g, " ");
+    if (!t) t = (a.getAttribute("aria-label") || "").trim();
+    return t;
+  };
+  const pick = (card) => {
+    const anchors = [...card.querySelectorAll('a[href]')];
+    // pass 1: facebook page profile links (facebook.com/<vanity> or /profile.php?id=)
+    for (const a of anchors) {
+      const t = pageName(a), h = a.getAttribute("href") || "", abs = a.href || "";
+      if (!t || t.length < 3 || t.length > 90 || UI.test(t)) continue;
+      if (/facebook\.com\/l\.php/.test(h)) continue;
+      if (/facebook\.com\/(ads|help|policies|business|legal|privacy)/.test(h)) continue;
+      if (/^https?:\/\/(www\.|m\.)?facebook\.com\/[^/?]+\/?$/.test(abs) || /profile\.php\?id=/.test(h)) return { t, h: abs };
+    }
+    // pass 2: any meaningful non-UI anchor
+    for (const a of anchors) {
+      const t = pageName(a), h = a.getAttribute("href") || "";
+      if (t && t.length >= 3 && t.length <= 90 && !UI.test(t) && !/facebook\.com\/l\.php/.test(h)) return { t, h: a.href || "" };
+    }
+    return { t: "", h: "" };
+  };
   while ((node = walker.nextNode())) {
     const m = node.textContent && node.textContent.match(/Library ID:\s*(\d{8,})/);
     if (!m) continue;
@@ -57,12 +79,8 @@ JS_EXTRACT = r"""
     }
     if (!card || seen.has(card)) continue;
     seen.add(card);
-    let name = "", href = "";
-    const links = card.querySelectorAll('a[href]');
-    for (const a of links) {
-      const t = (a.innerText || "").trim().replace(/\s+/g, " ");
-      if (t && t.length >= 2 && t.length <= 90 && !UI.test(t)) { name = t; href = a.href || ""; break; }
-    }
+    const picked = pick(card);
+    const name = picked.t, href = picked.h;
     const text = (card.innerText || "").replace(/\s+/g, " ").slice(0, 420);
     out.push({ libId: m[1], name, href, text });
   }
@@ -83,10 +101,11 @@ def clean_name(n: str) -> str:
 def parse_advertisers(cards: list, query: str) -> dict:
     """Group DOM ad-cards by advertiser name.
     Returns name -> {href, text, ads, lib_id}."""
+    SKIP_NAMES = {"ads", "ad", "ad library", "sponsored", "active", "inactive"}
     advertisers = {}
     for c in cards:
         nm = clean_name(c.get("name", ""))
-        if not nm:
+        if not nm or nm.lower() in SKIP_NAMES:
             continue
         a = advertisers.setdefault(nm, {"href": "", "text": "", "ads": 0, "lib_id": ""})
         a["ads"] += 1

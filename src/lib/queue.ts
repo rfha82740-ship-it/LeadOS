@@ -452,8 +452,9 @@ export async function ingestDiscoveredItems(
       classification.score = Math.max(classification.score, 45)
       classification.reason = classification.reason || "بيزنس حقيقي من خرائط جوجل (قائمة استهداف)"
     }
-    if (!classification.is_lead && isSponsored) {
+    if (!classification.is_lead && (isSponsored || itemPlatform === "ADS_LIBRARY")) {
       // معلن ممول في نفس النيش — بيصرف على إعلانات الآن (AD_SPENDER): أقوى قائمة استهداف — عنده ميزانية ومقتنع بالتسويق
+      // (يشمل نتايج مكتبات الإعلانات نفسها — جوّة مكتبة = دليل إنفاق فعلي، مفيش داعي لحكم AI)
       classification.is_lead = true
       if (classification.intent === "NONE" || classification.intent === "LOW") classification.intent = "HIGH"
       classification.score = Math.max(classification.score, 55)
