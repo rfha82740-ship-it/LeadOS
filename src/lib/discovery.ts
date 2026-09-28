@@ -270,7 +270,7 @@ interface WebSearchResult {
   displayedLink?: string
 }
 
-type SearchProvider = "serper" | "exa" | "zenrows" | "bing" | "tavily" | "serpapi" | "searxng" | "zai"
+type SearchProvider = "serper" | "exa" | "jina" | "zenrows" | "bing" | "tavily" | "serpapi" | "searxng" | "zai"
 
 let preferredProvider: SearchProvider | null = null
 
@@ -521,10 +521,47 @@ async function searchSearx(query: string, limit: number, recencyDays: number): P
     }))
 }
 
+// --- Jina Search (s.jina.ai — بحث حقيقي بيفهم site: ويرجّع محتوى الصفحة نفسها لكل نتيجة) ---
+// رصيد المفتاح ضخم (~10M) — بيشيل ضغط السلسلة لما serper/tavily يكونوا ميتين، ومحتوى الصفحة
+// بيخلي التصنيف أدق (snippet بدل content) من غير جلب إضافي.
+async function searchJina(query: string, limit: number): Promise<WebSearchResult[]> {
+  const key = process.env.JINA_API_KEY
+  if (!key) throw new Error("no key")
+  if (isProviderDead("jina")) throw new Error("jina dead-cache")
+  try {
+    const res = await fetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "X-With-Generated-Alt": "false" },
+      signal: AbortSignal.timeout(22000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = (await res.json()) as {
+      code?: number
+      data?: Array<{ title?: string; url?: string; description?: string; content?: string; date?: string }>
+    }
+    const rows = (Array.isArray(data.data) ? data.data : []).filter((r): r is typeof r & { url: string } => Boolean(r.url))
+    if (!rows.length) throw new Error("no results")
+    return rows.slice(0, limit).map((r, i) => ({
+      url: r.url,
+      name: r.title ?? "",
+      snippet: (r.description ?? r.content ?? "").slice(0, 600),
+      host_name: hostnameOf(r.url),
+      date: r.date,
+      rank: i + 1,
+    }))
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // 401/403 = مفتاح بايظ → كاش موت 6 ساعات (نفس منطق serper)
+    if (msg.includes("401") || msg.includes("403")) noteProviderDead("jina", 6)
+    throw err
+  }
+}
+
 const PROVIDER_ORDER: Array<{ name: SearchProvider; run: (q: string, l: number, r: number) => Promise<WebSearchResult[]> }> = [
   { name: "serper", run: searchSerper },
   // exa الأول بعد serper: حي + بيفهم site: بفلتر includeDomains — ده محرك المنصات الأساسي دلوقتي
   { name: "exa", run: (q, l) => searchExa(q, l) },
+  // jina بعد exa: بيفهم site: + بيرجّع محتوى كامل — بيشيل الضغط لما serper/tavily موتاني ورصيده ضخم
+  { name: "jina", run: (q, l) => searchJina(q, l) },
   // zenrows→Bing: كريدت 1/طلب، 3 مفاتيح دوران + ميزانية يومية — تغطية ويب عامة (مهم للصيغ من غير site:)
   { name: "zenrows", run: (q, l) => searchBingViaZenrows(q, l) },
   // serpapi بعد zenrows: 41 بحث فاضل بس — نحافظ عليهم للطوارئ (بيطلعوا لما zenrows يفشل/يخلص)
@@ -915,20 +952,42 @@ const AD_PIXEL_SIGNATURES: Array<{ channel: string; re: RegExp }> = [
 
 /** فحص موقع بيزنس: بيرجع قنوات الإعلانات الحية اللي بيكسلاتها ظاهرة (فارغ = لا دليل/محجوب) */
 export async function detectAdPixels(url: string): Promise<string[]> {
+  const target = url.startsWith("http") ? url : `https://${url}`
+  // المحاولة 1: جلب مباشر (أسرع وأرخص) — نجاح حتى بدون بيكسلات = كفاية
+  const direct = await detectAdPixelsDirect(target)
+  if (direct.ok) return direct.channels
+  // المحاولة 2 (جديدة): قارئ Jina — بيرندر الصفحة بالجافاسكريبت على سيرفراتهم ويرجّع HTML مكتمل
+  // المواقع اللي بتحجب سيرفرات الداتا سنتر بتنجح من عندهم، والبيكسلات عايشة في الرندر
+  // (مثبت حيًا: dubizzle → 6 بصمات إعلانية في الرندر)
+  const key = process.env.JINA_API_KEY
+  if (!key) return []
   try {
-    const target = url.startsWith("http") ? url : `https://${url}`
+    const res = await fetch(`https://r.jina.ai/${target}`, {
+      headers: { Authorization: `Bearer ${key}`, "X-Return-Format": "html" },
+      signal: AbortSignal.timeout(18000),
+    })
+    if (!res.ok) return []
+    const html = (await res.text()).slice(0, 900_000)
+    return AD_PIXEL_SIGNATURES.filter((p) => p.re.test(html)).map((p) => p.channel)
+  } catch {
+    return []
+  }
+}
+
+async function detectAdPixelsDirect(target: string): Promise<{ ok: boolean; channels: string[] }> {
+  try {
     const res = await fetch(target, {
       headers: { "User-Agent": BROWSER_UA, "Accept-Language": "ar,en;q=0.8" },
       signal: AbortSignal.timeout(7000),
       redirect: "follow",
     })
-    if (!res.ok) return []
+    if (!res.ok) return { ok: false, channels: [] }
     const ct = res.headers.get("content-type") ?? ""
-    if (!ct.includes("html")) return []
+    if (!ct.includes("html")) return { ok: false, channels: [] }
     const html = (await res.text()).slice(0, 400_000)
-    return AD_PIXEL_SIGNATURES.filter((p) => p.re.test(html)).map((p) => p.channel)
+    return { ok: true, channels: AD_PIXEL_SIGNATURES.filter((p) => p.re.test(html)).map((p) => p.channel) }
   } catch {
-    return []
+    return { ok: false, channels: [] }
   }
 }
 
