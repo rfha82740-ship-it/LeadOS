@@ -76,7 +76,12 @@ async function fetchFacebookDirect(externalId: string, membersWanted: boolean): 
       "User-Agent": FB_UA,
       "Accept-Language": "ar,eg;q=0.9,en;q=0.8",
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      // فيسبوك 2026: بي.refض الطلب بـ400 لو هيدرز المتصفح ناقصة (مثبت بالتجربة)
       "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+      "Upgrade-Insecure-Requests": "1",
     },
     signal: AbortSignal.timeout(20000),
     redirect: "follow",
