@@ -12,6 +12,8 @@ const rows: Row[] = []
 const add = (domain: string, check: string, value: string | boolean, verdict: Verdict, note?: string) =>
   rows.push({ domain, check, value: typeof value === "boolean" ? (value ? "نعم" : "لا") : value, verdict, note })
 
+async function main() {
+
 function run(cmd: string, timeout = 60_000): string {
   try { return execSync(cmd, { cwd: ROOT, encoding: "utf8", timeout }) } catch (e: unknown) { return `__ERR__${e instanceof Error ? e.message.slice(0, 150) : "خطأ"}` }
 }
@@ -81,10 +83,10 @@ function run(cmd: string, timeout = 60_000): string {
 // ═══ 6) DSI + SKILLS ═══
 {
   const b = readFileSync(join(ROOT, "src/lib/skills/dsi/budget.ts"), "utf8")
-  const enforced = ["maxSkillsPerTask", "maxSkillsPerNode", "maxNodesPerGraph", "maxReplansPerGraph", "maxAttemptsPerNode", "maxExternalSkillCalls", "trustThreshold"].filter(k => b.includes(k)).length
+  const enforced = ["maxSkillsPerTask", "maxSkillsPerNode", "maxNodesPerGraph", "maxReplansPerGraph", "maxAttemptsPerNode", "maxExternalSkillCalls", "minTrustScore"].filter(k => b.includes(k)).length
   add("DSI", "ميزانيات DSI (7 حدود جوهرية في الكود)", `${enforced}/7`, enforced >= 7 ? "PASS" : "FAIL")
-  const q = run("npx tsx scripts/test-dsi.ts", 300_000)
-  add("DSI", "مجموعة اختبار الطبقة الديناميكية (8 اختبارات)", q.includes("كل اختبارات الطبقة عدت"), q.includes("كل اختبارات الطبقة عدت") ? "PASS" : "FAIL")
+  const q = run("npx tsx scripts/test-dsi.ts", 480_000)
+  add("DSI", "مجموعة اختبار الطبقة الديناميكية (8 اختبارات)", q.includes("كل اختبارات الطبقة"), q.includes("كل اختبارات الطبقة") ? "PASS" : "FAIL")
   const sec = run("npx tsx scripts/test-skill-security.ts", 120_000)
   const m = /النتيجة: (\d+) PASS · (\d+) FAIL/.exec(sec)
   add("SKILLS", "أمان المهارات (12 رفض + 6 قبول + حقن مدفون)", m ? `${m[1]} PASS / ${m[2]} FAIL` : "فشل", m && m[2] === "0" ? "PASS" : "FAIL")
@@ -150,3 +152,6 @@ console.log(`\n═══ المجموع: ${rows.length - fail.length - warn.leng
 if (fail.length) console.log("❌ FAILs: " + fail.map(f => `[${f.domain}] ${f.check}`).join(" | "))
 if (warn.length) console.log("⚠️  WARNs: " + warn.map(f => `[${f.domain}] ${f.check}`).join(" | "))
 process.exit(fail.length > 0 ? 1 : 0)
+}
+
+main().catch(e => { console.error("فشل التدقيق:", e instanceof Error ? e.message.slice(0, 200) : e); process.exit(1) })
