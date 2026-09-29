@@ -26,6 +26,8 @@ export interface FetchResult {
 }
 
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+// فيسبوك 2026: بيرفض UA الموبايل/القديم بصفحة «متصفح غير مدعوم» — لازم كروم سطح مكتب حديث
+const FB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 function hashId(s: string): string {
   let h = 5381
@@ -71,7 +73,7 @@ async function fetchFacebookDirect(externalId: string, membersWanted: boolean): 
   const res = await fetch(`https://www.facebook.com/groups/${encodeURIComponent(externalId)}/posts/`, {
     headers: {
       Cookie: cookie,
-      "User-Agent": UA,
+      "User-Agent": FB_UA,
       "Accept-Language": "ar,eg;q=0.9,en;q=0.8",
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Sec-Fetch-Mode": "navigate",
