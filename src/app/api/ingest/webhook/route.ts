@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { json, jsonError, readBody } from "@/lib/api-helpers"
+import { json, jsonError, readBody, rateLimit } from "@/lib/api-helpers"
 import { getSessionUser } from "@/lib/auth"
 import { ingestDiscoveredItems } from "@/lib/queue"
 import type { DiscoveredItem } from "@/lib/discovery"
@@ -98,6 +98,8 @@ async function handle(req: Request) {
     undefined
   const authorized = (key && provided === key) || Boolean(await getSessionUser())
   if (!authorized) return jsonError("غير مصرح — مفتاح INGEST_API_KEY مطلوب", 401)
+  // Rate limit (أمن API #15): أقصى 60 دفعة/دقيقة لكل مفتاح — 200 عنصر/دفعة كحد أقصى مُسبق
+  if (!rateLimit(`ingest:${provided?.slice(-8) ?? "session"}`, 60, 60_000)) return jsonError("حصة الابتلاع مؤقتًا مليانة — جرب بعد دقيقة", 429)
 
   // ---- Parse ----
   const body = await readBody<WorkerPayload>(req)

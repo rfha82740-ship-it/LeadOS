@@ -3,7 +3,7 @@
 // القاعدة الصارمة: المهارة معرفة واستراتيجية فقط — لا تنفيذ كود، لا تجاوز للسياسة.
 // طبقة الأمان أعلى منها دايمًا: Security / Policy / Human Approval / deterministic execution.
 import { db } from "@/lib/db"
-import { json, jsonError, requireAuth, isResponse, readBody } from "@/lib/api-helpers"
+import { json, jsonError, requireAuth, isResponse, readBody, rateLimit } from "@/lib/api-helpers"
 import { assessSkillTrust, contentHashOf } from "@/lib/skills/dsi/trust"
 
 export async function GET() {
@@ -41,6 +41,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const auth = await requireAuth()
   if (isResponse(auth)) return auth
+  if (!rateLimit(`wskill:${auth.user.id}`, 10, 60_000)) return jsonError("محاولات كتير — استنى دقيقة", 429)
   const body = await readBody<{ name?: string; description?: string; body?: string; tags?: string; license?: string; sourceRef?: string }>(req)
   const name = (body?.name ?? "").trim()
   const description = (body?.description ?? "").trim()

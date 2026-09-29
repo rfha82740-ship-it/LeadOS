@@ -262,7 +262,7 @@ async function processDiscoveryJob(jobId: string): Promise<string> {
         startedAt: new Date(Date.now() - 60000),
         completedAt: new Date(),
         resultCount: items.length,
-        metadata: { adaptersUsed, plan: plan.queries, queriesByType, selectedBy, aiSmithTarget, byType, skills: skillsUsed, ...(competitorAdEvidence.length ? { competitorAdChannels: competitorAdEvidence } : {}) },
+        metadata: { jobId, adaptersUsed, plan: plan.queries, queriesByType, selectedBy, aiSmithTarget, byType, skills: skillsUsed, ...(competitorAdEvidence.length ? { competitorAdChannels: competitorAdEvidence } : {}) },
       },
     })
     await db.source.update({ where: { id: source.id }, data: { lastRunAt: new Date(), lastError: null } })

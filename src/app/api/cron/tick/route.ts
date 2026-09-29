@@ -6,6 +6,7 @@ import { db } from "@/lib/db"
 import { scanDueGroups } from "@/lib/monitors/scan"
 import { zizoTick } from "@/lib/agent/zizo/brain"
 import { superviseChains } from "@/lib/supervisor"
+import { recordSystemAlerts } from "@/lib/alert-engine"
 
 /**
  * Orchestrator tick endpoint — designed for external cron (cron-job.org / Vercel Cron).
@@ -96,6 +97,17 @@ async function handle(req: Request) {
       else console.log(`[supervisor] سليم — لا إحياء مطلوب (${sup.skipped.length} متخطاة)`)
     } catch (err) {
       console.error("[supervisor] crashed:", err instanceof Error ? err.message.slice(0, 120) : err)
+    }
+
+    // محرك تنبيهات النظام (أمن API #21): فحوصات حية ← تنبيهات CRITICAL/HIGH/MEDIUM بـdedup
+    try {
+      const wsIds = await db.workspace.findMany({ where: { isActive: true }, select: { id: true }, take: 5 })
+      for (const w of wsIds) {
+        const n = await recordSystemAlerts(w.id)
+        if (n > 0) console.log(`[alerts] ${n} تنبيه جديد للمساحة ${w.id}`)
+      }
+    } catch (err) {
+      console.error("[alerts] crashed:", err instanceof Error ? err.message.slice(0, 120) : err)
     }
   })
 

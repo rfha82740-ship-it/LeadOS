@@ -1,7 +1,7 @@
 // LeadOS — Queue/Jobs API: الطابور بكل حالاته + أفعال آمنة (طلب #28)
 // queued/running/retrying/success/failed/stale + retry | cancel | unlock-stale — كل فعل يسجل AuditLog
 import { db } from "@/lib/db"
-import { json, jsonError, requireAuth, isResponse, readBody } from "@/lib/api-helpers"
+import { json, jsonError, requireAuth, isResponse, readBody, rateLimit } from "@/lib/api-helpers"
 
 export const maxDuration = 30
 
@@ -51,6 +51,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await requireAuth()
   if (isResponse(auth)) return auth
+  if (!rateLimit(`queue:${auth.user.id}`, 30, 60_000)) return jsonError("محاولات كتير — استنى شوية", 429)
   const wsId = auth.workspace.id
   const body = await readBody<{ action?: string; jobId?: string }>(req)
   const action = body?.action

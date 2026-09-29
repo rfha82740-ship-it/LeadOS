@@ -5,7 +5,7 @@
 // تدفق الإيقاف: STOPPING → كتابة الملف → تأكيد القراءة 200 → STOPPED (موثق).
 // تدفق التشغيل: حذف الملف → تأكيد 404 → dispatch جيل واحد لكل سلسلة عبر بوابة السعة (بدون عاصفة) → RUNNING.
 import { db } from "@/lib/db"
-import { json, jsonError, requireAuth, isResponse, readBody } from "@/lib/api-helpers"
+import { json, jsonError, requireAuth, isResponse, readBody, rateLimit } from "@/lib/api-helpers"
 import { stopFileExists, capacityState, revivalDecision, CHAINS, type ChainEvent } from "@/lib/supervisor"
 
 export const maxDuration = 60
@@ -95,8 +95,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAuth()
+  // أمن API #15: الإيقاف/الاستئناف فعل حرج — OWNER/ADMIN فقط + rate limit
+  const auth = await requireAuth({ roles: ["OWNER", "ADMIN"] })
   if (isResponse(auth)) return auth
+  if (!rateLimit(`sysstop:${auth.user.id}`, 6, 60_000)) return jsonError("محاولات كتير — استنى دقيقة", 429)
   // منع الإيقاف الخطير بدون تأكيد صريح (طلب #10) — التأكيد نصي حرفي
   const body = await readBody<{ confirm?: string; mode?: "stop" | "resume"; reason?: string }>(req)
   const mode = body?.mode === "resume" ? "resume" : "stop"

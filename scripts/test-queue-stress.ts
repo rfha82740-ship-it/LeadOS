@@ -63,7 +63,8 @@ async function main() {
   // التغطية الكاملة (74/74) بتتأكد على Postgres (سلوك الإنتاج) في مرحلة تدقيق الإنتاج.
   check(uniqueClaimed <= 74 && doubleClaim === 0, "لا مطالبة زائدة عن الجاهزة (≤74)", `${uniqueClaimed} claimed`)
   console.log(`   ℹ️ تغطية المزاد محليًا: ${uniqueClaimed}/74 — sqlite snapshots؛ مرجع الإنتاج على Neon`)
-  const futureUntouched = await db.job.count({ where: { errorMessage: MARKER, status: "QUEUED" } })
+  // العد لازم يستبعد الجوبات الجاهزة اللي فضلت بعد سباق المطالبة (الـclaim مش بيضمن استنفاد كامل محليًا)
+  const futureUntouched = await db.job.count({ where: { errorMessage: MARKER, status: "QUEUED", scheduledAt: { gt: new Date() } } })
   check(futureUntouched === 10, "الجوب المستقبلية (scheduledAt+) ما اتنفذت", `${futureUntouched}/10 لسه QUEUED`)
 
   // ─── 2) استرداد العالقة: lockedAt أقدم من 10 دقايق → QUEUED ───

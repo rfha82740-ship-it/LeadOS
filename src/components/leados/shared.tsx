@@ -30,7 +30,7 @@ export async function apiSend<T>(url: string, method: "POST" | "PATCH" | "DELETE
   return res.json() as Promise<T>
 }
 
-export function useApi<T>(url: string | null, deps: unknown[] = []) {
+export function useApi<T>(url: string | null, deps: unknown[] = [], pollMs?: number) {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,6 +49,18 @@ export function useApi<T>(url: string | null, deps: unknown[] = []) {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, tick, ...deps])
+
+  // Data freshness #14: polling اختياري + استماع للحدث العام leados:refresh
+  useEffect(() => {
+    if (!pollMs) return
+    const iv = setInterval(() => setTick((t) => t + 1), pollMs)
+    return () => clearInterval(iv)
+  }, [pollMs])
+  useEffect(() => {
+    const h = () => setTick((t) => t + 1)
+    window.addEventListener("leados:refresh", h)
+    return () => window.removeEventListener("leados:refresh", h)
+  }, [])
 
   return { data, loading, error, refresh }
 }

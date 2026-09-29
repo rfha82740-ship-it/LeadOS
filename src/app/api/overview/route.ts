@@ -54,6 +54,8 @@ export async function GET(req: Request) {
   })
 
   return json({
+    // Data freshness #14: كل رد overview يحمل لحظة التوليد — الـUI بيعرضها
+    generatedAt: new Date().toISOString(),
     kpis: { hotLeads, newLeads, runningResearch, unreadAlerts, dueTasks, activeSources, totalLeads, activeJobs: totalJobs },
     topLeads,
     recentAlerts,
