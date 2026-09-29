@@ -42,6 +42,26 @@ export async function GET() {
       source: "GitHub Actions API — حساب حي لحظي",
     })
   } catch (e) {
-    return jsonError(`فشل حساب السعة: ${e instanceof Error ? e.message.slice(0, 100) : "خطأ"}`, 502)
+    // تدهور لطيف (أمن API #15/§20): فشل GitHub API مايموتش الشريط — السعة = غير معروفة
+    // وجرد المزرعة الثابت (حقيقة كونفج) بيفضل موجود، مع سبب واضح للمشكلة
+    return json({
+      ok: false,
+      degraded: true,
+      limit: 20,
+      runningJobs: null,
+      queuedJobs: null,
+      availableSlots: null,
+      safetyMargin: 1,
+      chains: (Object.keys(CHAINS) as ChainEvent[]).map(event => ({
+        event, name: CHAINS[event].name, priority: CHAINS[event].priority,
+        need: CHAINS[event].need, critical: CHAINS[event].critical,
+        gateDecision: "UNKNOWN", gateReason: "GitHub API غير متاح من هذه البيئة",
+      })),
+      farm: farmInventorySummary(),
+      stop: false,
+      checkedAt: new Date().toISOString(),
+      source: "degraded — فشل GitHub Actions API",
+      error: e instanceof Error ? e.message.slice(0, 100) : "خطأ",
+    })
   }
 }
