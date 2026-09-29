@@ -1,17 +1,24 @@
 # LeadOS Browser Farm — 15 متصفح متوازي على Actions المجاني (ريبو عام = دقايق بلا سقف)
-# كل shard = منصة كاملة: TELEGRAM/REDDIT (HTTP) + serp DDG + DrissionPage للمواقع المباشرة
-# FlareSolverr service جاهز لأي كلاودفلير. الدفعات صغيرة (8) والـtimeout مرفوع (240s).
+# ⚡ دائم 24/7: كل تشغيلة بتلعب ~50 دقيقة (sweeps متكررة) وفي الآخر تولّد التشغيلة اللي بعدها
+#   عبر repository_dispatch (استثناء رسمي مسموح لـGITHUB_TOKEN) — سلسلة مفرغة مستقلة عن الجداول.
+# الفرامل: ملف .github/STOP في الريبو = وقف السلسلة كلها.
 name: LeadOS Browser Farm
 
 on:
   schedule:
-    - cron: "20 */4 * * *"      # كل 4 ساعات على الدقيقة 20 (بعيد عن adslib :07)
+    - cron: "20 */4 * * *"      # (احتياطي لو الجداول اشتغلت يومًا)
   workflow_dispatch:
     inputs:
       shard:
         description: "رقم shard محدد (0-14) — فاضي = كل الـ15"
         required: false
         default: ""
+  repository_dispatch:
+    types: [beat_farm]
+
+permissions:
+  contents: write
+  actions: write
 
 concurrency:
   group: leados-farm
@@ -20,7 +27,7 @@ concurrency:
 jobs:
   farm:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 58
     strategy:
       fail-fast: false
       max-parallel: 15
@@ -51,7 +58,7 @@ jobs:
           playwright install chromium --with-deps > /dev/null 2>&1 || playwright install chromium
           sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core > /dev/null
 
-      - name: تشغيل الـshard
+      - name: تشغيل الـshard — sweeps متكررة ~45 دقيقة
         run: |
           WANT="${{ inputs.shard }}"
           MINE="${{ matrix.shard }}"
@@ -59,4 +66,25 @@ jobs:
           CHROME=$(find /home/runner/.cache/ms-playwright -name chrome -path "*chrome-linux*" 2>/dev/null | head -1)
           export CHROME_PATH="$CHROME"
           echo "chrome: $CHROME"
-          python worker/farm.py --shard $MINE --shards 15
+          PASS=0
+          while [ $SECONDS -lt 2640 ]; do
+            PASS=$((PASS+1))
+            echo "🚜 Sweep #$PASS — shard $MINE ($(date -u +%H:%M) UTC)"
+            python worker/farm.py --shard $MINE --shards 15 || echo "⚠️ sweep $PASS فيه أخطاء جزئية — نكمل"
+            sleep 180
+          done
+          echo "✅ shard $MINE أنهى $PASS sweeps في $((SECONDS/60)) دقيقة"
+
+      - name: 🔁 سلسلة دائمة — توليد الدفعة التالية
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — السلسلة واقفة (احذف الملف لاستئناف الدائم)"; exit 0; fi
+          sleep 30
+          code=$(curl -s -o /tmp/beat.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d '{"event_type":"beat_farm"}')
+          echo "beat_farm -> HTTP $code (204 = الدفعة التالية انطلقت)"

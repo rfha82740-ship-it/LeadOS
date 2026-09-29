@@ -1,12 +1,18 @@
-# LeadOS Worker على GitHub Actions (v2 re-register) — مجاني 100% للتشغيل الدوري
+# LeadOS Worker على GitHub Actions (v3 دائم) — سلسلة مفرغة 24/7 عبر repository_dispatch
 # ⚠️ مهم: GitHub Actions عناوينه داتا سنتر — مناسب لـ Google Maps والبحث العام فقط.
 #    للفيسبوك المسجّل بالكوكيز استخدم VPS/Railway ببروكسي سكني.
 name: LeadOS Worker
 
 on:
   schedule:
-    - cron: "0 */6 * * *"     # كل 6 ساعات
+    - cron: "0 */6 * * *"     # (احتياطي لو الجداول اشتغلت يومًا)
   workflow_dispatch: {}        # زر تشغيل يدوي من واجهة GitHub
+  repository_dispatch:
+    types: [beat_worker]
+
+permissions:
+  contents: write
+  actions: write
 
 concurrency:
   group: leados-worker
@@ -15,7 +21,7 @@ concurrency:
 jobs:
   discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 58
     env:
       LEADOS_BASE_URL: ${{ secrets.LEADOS_BASE_URL }}
       LEADOS_API_KEY: ${{ secrets.LEADOS_API_KEY }}
@@ -43,7 +49,7 @@ jobs:
         working-directory: worker
         run: pip install -r requirements.txt
 
-      - name: دورة اكتشاف
+      - name: دورة اكتشاف — دورات متكررة ~45 دقيقة
         working-directory: worker
         run: |
           # إعدادات وضع once لـ GitHub Actions
@@ -56,7 +62,28 @@ jobs:
           cfg["queries"].pop("FACEBOOK", None)
           p.write_text(yaml.dump(cfg, allow_unicode=True), encoding="utf-8")
           PY
-          python bot.py run
+          PASS=0
+          while [ $SECONDS -lt 2640 ]; do
+            PASS=$((PASS+1))
+            echo "⚙️ دورة اكتشاف #$PASS ($(date -u +%H:%M) UTC)"
+            python bot.py run || echo "⚠️ دورة $PASS فيها أخطاء — نكمل"
+            sleep 300
+          done
+          echo "✅ Worker أنهى $PASS دورة في $((SECONDS/60)) دقيقة"
+
+      - name: 🔁 سلسلة دائمة — توليد الدفعة التالية
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — السلسلة واقفة"; exit 0; fi
+          sleep 30
+          code=$(curl -s -o /tmp/beat.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d '{"event_type":"beat_worker"}')
+          echo "beat_worker -> HTTP $code (204 = الدفعة التالية انطلقت)"
 
       - name: حفظ مخرجات فشل (للتشخيص)
         if: failure()

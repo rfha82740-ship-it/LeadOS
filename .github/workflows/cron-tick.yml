@@ -1,12 +1,19 @@
-# LeadOS — Cron خارجي حقيقي: يضرب /api/cron/tick كل 15 دقيقة (v2 re-register 2026-09-29)
-# يعمل كأوركستراتور: يفحص قواعد البحث المفعّلة → يجدول مهام اكتشاف → يشغّلها
-# (الأوركستراتور يحترم حد "قاعدة واحدة كل 10 دقائق" داخليًا)
+# LeadOS — النابض الدائم (v3): نبضة /api/cron/tick كل 10 دقايق 24/7
+# السلسلة المفرغة: كل تشغيلة بتعمل 5 نبضات (~50 دقيقة) وفي الآخر تولّد التشغيلة اللي بعدها
+# عبر repository_dispatch (استثناء رسمي مسموح لـGITHUB_TOKEN) — مستقلة عن جدولات GitHub المعطلة.
+# الفرامل: ملف .github/STOP في الريبو = وقف السلسلة.
 name: LeadOS Cron Tick
 
 on:
   schedule:
-    - cron: "*/15 * * * *"    # كل 15 دقيقة
+    - cron: "*/15 * * * *"    # (احتياطي لو الجداول اشتغلت يومًا)
   workflow_dispatch: {}        # زر تشغيل يدوي
+  repository_dispatch:
+    types: [beat_tick]
+
+permissions:
+  contents: write
+  actions: write
 
 concurrency:
   group: leados-cron-tick
@@ -15,13 +22,33 @@ concurrency:
 jobs:
   tick:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 58
     steps:
-      - name: تشغيل نبضة الأوركستراتور
+      - uses: actions/checkout@v4
+
+      - name: 5 نبضات كل 10 دقايق (~50 دقيقة)
         run: |
-          RESPONSE=$(curl -sS -m 120 -w "\nHTTP_STATUS:%{http_code}" \
-            -X POST "${{ secrets.LEADOS_BASE_URL }}/api/cron/tick?secret=${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" || true)
-          echo "$RESPONSE"
-          # 200 = نجاح، أي حالة أخرى (خصوصًا 401) = فشل صريح
-          echo "$RESPONSE" | grep -q "HTTP_STATUS:200" || echo "::warning::tick did not return 200"
+          for i in 1 2 3 4 5; do
+            echo "💓 نبضة $i/5 ($(date -u +%H:%M) UTC)"
+            RESPONSE=$(curl -sS -m 120 -w "\nHTTP_STATUS:%{http_code}" \
+              -X POST "${{ secrets.LEADOS_BASE_URL }}/api/cron/tick?secret=${{ secrets.CRON_SECRET }}" \
+              -H "Content-Type: application/json" || true)
+            echo "$RESPONSE" | tail -3
+            echo "$RESPONSE" | grep -q "HTTP_STATUS:200" || echo "::warning::tick did not return 200"
+            [ $i -lt 5 ] && sleep 600
+          done
+          echo "✅ النابض خلّص 5 نبضات في $((SECONDS/60)) دقيقة"
+
+      - name: 🔁 سلسلة دائمة — توليد النبضة التالية
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — السلسلة واقفة (احذف الملف لاستئناف الدائم)"; exit 0; fi
+          sleep 30
+          code=$(curl -s -o /tmp/beat.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d '{"event_type":"beat_tick"}')
+          echo "beat_tick -> HTTP $code (204 = النبضة التالية انطلقت)"
