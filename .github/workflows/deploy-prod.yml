@@ -1,0 +1,30 @@
+# LeadOS — نشر تلقائي على Vercel عبر GitHub Actions (push → production)
+# (الاسم الجديد deploy-prod بدل vercel-deploy — الملف القديم فيه typo في branches بيمنع التريجر)
+name: Vercel Deploy Prod
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # زر تشغيل يدوي
+
+concurrency:
+  group: vercel-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Link Vercel project
+        run: |
+          mkdir -p .vercel
+          echo '{"projectId":"${{ secrets.VERCEL_PROJECT_ID }}","orgId":"${{ secrets.VERCEL_ORG_ID }}","projectName":"leados-v2"}' > .vercel/project.json
+
+      - name: Deploy (production)
+        run: bunx vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
