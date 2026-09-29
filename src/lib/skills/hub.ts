@@ -202,16 +202,20 @@ export async function harvestClawHub(opts?: { budgetMs?: number }): Promise<HubH
     return { added: 0, checked: 0, skipped: true, note: "حصاد ClawHub حديث موجود — المرة الجاية بعد فترة" }
   }
 
-  // استعلامات موجّهة بالصيد — بتتلف عليها كل حصاد (shuffle) عشان تنوّع الكشف
+  // استعلامات موجّهة بالصيد — بتتلف عليها كل حصاد (shuffle) عشان تنوّع الكشف.
+  // ⚠️ لازم تكون قصيرة (1-2 كلمة): بحث ClawHub بيطابق أسماء السكيلز حرفيًا،
+  // والاستعلامات الطويلة بترجع صفر نتايج (اتثبت اختبارًا حيًا 2026-09-29).
   const QUERIES = [
-    "facebook groups lead generation",
-    "cold outreach templates",
-    "whatsapp business messaging",
-    "instagram local business prospecting",
-    "google maps scraping leads",
-    "b2b lead list builder",
-    "sales follow up sequence",
-    "social media marketing clients",
+    "lead generation",
+    "cold email",
+    "whatsapp",
+    "instagram",
+    "scraping",
+    "crm",
+    "outreach",
+    "marketing",
+    "seo",
+    "facebook",
   ]
   const picked = [...QUERIES].sort(() => Math.random() - 0.5).slice(0, 3)
 
