@@ -4,7 +4,8 @@ name: Vercel Deploy Prod
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch: {} # زر تشغيل يدوي
 
 concurrency:
