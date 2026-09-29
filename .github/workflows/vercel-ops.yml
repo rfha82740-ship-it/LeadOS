@@ -1,0 +1,51 @@
+# LeadOS — عمليات Vercel الإنتاجية من Actions (متاحات VERCEL_TOKEN السر الموجود)
+# 1) يضبط GITHUB_TOKEN + GITHUB_REPO على الإنتاج (زر الإيقاف من لوحة التحكم — طلب #10)
+# 2) يشخّص آخر deployments ويعيد نشر الإنتاج (حل لمخنوق النشر)
+name: LeadOS Vercel Ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "mode: set-stop-env | status | redeploy"
+        required: true
+        default: "set-stop-env"
+        type: choice
+        options: [set-stop-env, status, redeploy]
+
+concurrency:
+  group: leados-vercel-ops
+  cancel-in-progress: false
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: وضع status — عرض آخر deployments
+        if: github.event.inputs.mode == 'status'
+        run: |
+          npx vercel@59 ls --prod --token "$VERCEL_TOKEN" 2>&1 | tail -10
+
+      - name: وضع set-stop-env — ضبط متغيرات زر الإيقاف + إعادة نشر
+        if: github.event.inputs.mode == 'set-stop-env'
+        env:
+          GH_PAT: ${{ secrets.LEADOS_GH_PAT }}
+        run: |
+          npx vercel@59 env rm GITHUB_TOKEN production --yes --token "$VERCEL_TOKEN" || true
+          printf '%s' "$GH_PAT" | npx vercel@59 env add GITHUB_TOKEN production --token "$VERCEL_TOKEN"
+          npx vercel@59 env rm GITHUB_REPO production --yes --token "$VERCEL_TOKEN" || true
+          printf '%s' "bdalhlymzaldyn7-ui/LeadOS" | npx vercel@59 env add GITHUB_REPO production --token "$VERCEL_TOKEN"
+          echo "✅ GITHUB_TOKEN + GITHUB_REPO اتحطوا على الإنتاج"
+          npx vercel@59 deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -5
+
+      - name: وضع redeploy — إعادة نشر من آخر كوميت
+        if: github.event.inputs.mode == 'redeploy'
+        run: |
+          npx vercel@59 deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -8
