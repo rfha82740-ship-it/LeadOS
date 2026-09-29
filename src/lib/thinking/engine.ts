@@ -53,6 +53,16 @@ export async function executeNodeStep(graphId: string, platformsHint?: string[])
   if (!node) return null
 
   const t0 = Date.now()
+  // ═══ فرض maxAttemptsPerNode فعليًا (43.19): عقدة استنفدت محاولاتها = فشل نهائي ═══
+  // (بدون الفرض ده: العقدة العالقة ترجع PENDING من الاستئناف وتحاول للأبد)
+  if (node.attempts >= DSI_BUDGET.maxAttemptsPerNode) {
+    await db.taskGraphNode.update({
+      where: { id: node.id },
+      data: { status: "FAILED", outcome: "FAILURE", failureReason: `استنفد المحاولات (${node.attempts}/${DSI_BUDGET.maxAttemptsPerNode}) — عقدة محسومة` },
+    }).catch(() => undefined)
+    await addEvent(graphId, node.nodeId, "REPLAN", `عقدة ${node.type} استنفدت محاولاتها (${node.attempts}) — محسومة فشل نهائي`)
+    return { nodeId: node.nodeId, outcome: "FAILURE", note: "استنفد المحاولات" }
+  }
   await db.taskGraphNode.update({ where: { id: node.id }, data: { status: "RUNNING", attempts: { increment: 1 } } })
   const facts = (graph.facts ?? {}) as GraphFacts
   let skills: SelectedSkillRef[] = []
@@ -60,19 +70,26 @@ export async function executeNodeStep(graphId: string, platformsHint?: string[])
   // ═══ RETRIEVE → RANK → TRUST GATE → ACTIVATE (لكل عقدة — مش مرة للمهمة، 43.6) ═══
   if (nodeNeedsSkills(node.type)) {
     try {
-      const r = await retrieveSkillsForNode({
-        workspaceId: graph.workspaceId,
-        objective: node.objective,
-        nodeType: node.type,
-        graphId,
-        nodeId: node.nodeId,
-        taskId: graph.sourceRunId ?? undefined,
-      })
-      skills = r.selected
+      // فرض skillRetrievalBudgetMs فعليًا: الاسترجاع اللي يتجاوز ميزانيته بيتقطع — العقدة تشتغل بالأساسي
+      const r = await Promise.race([
+        retrieveSkillsForNode({
+          workspaceId: graph.workspaceId,
+          objective: node.objective,
+          nodeType: node.type,
+          graphId,
+          nodeId: node.nodeId,
+          taskId: graph.sourceRunId ?? undefined,
+        }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), DSI_BUDGET.skillRetrievalBudgetMs)),
+      ])
+      skills = r?.selected ?? []
+      if (r?.budgetExhausted) {
+        await addEvent(graphId, node.nodeId, "BUDGET", `استرجاع متوقف: ${r.budgetExhausted} — العقدة تشتغل بالقدرات الأساسية`)
+      }
       if (skills.length) {
         await addEvent(graphId, node.nodeId, "SKILL_SELECTED",
           `تفعيل ${skills.length} مهارة للعقدة: ${skills.map((s) => `[${s.kind}] ${s.name}`).join("، ")}`,
-          { selected: skills, parsed: r.parsed, semanticUsed: r.semanticUsed, candidatesChecked: r.candidatesChecked })
+          { selected: skills, parsed: r?.parsed, semanticUsed: r?.semanticUsed ?? false, candidatesChecked: r?.candidatesChecked ?? 0 })
       }
     } catch { /* استرجاع فشل → العقدة تشتغل بالقدرات الأساسية (43.28 #21) */ }
   }
@@ -344,7 +361,11 @@ export async function inspectThinkingGraph(graphId: string): Promise<{
 export async function resumeActiveGraphs(max = 2, budgetMs = 40_000): Promise<Array<{ graphId: string; resumed: boolean; note: string }>> {
   const out: Array<{ graphId: string; resumed: boolean; note: string }> = []
   try {
-    // عقد RUNNING عالقة من instance مات → رجّعها PENDING
+    // عقد RUNNING عالقة من instance مات: اللي استنفدت محاولاتها = فشل نهائي، والباقي يرجع PENDING
+    await db.taskGraphNode.updateMany({
+      where: { status: "RUNNING", attempts: { gte: DSI_BUDGET.maxAttemptsPerNode } },
+      data: { status: "FAILED", outcome: "FAILURE", failureReason: `استنفد المحاولات (${DSI_BUDGET.maxAttemptsPerNode}) — أثناء استئناف الخريطة` },
+    })
     await db.taskGraphNode.updateMany({
       where: { status: "RUNNING", updatedAt: { lt: new Date(Date.now() - 15 * 60_000) } },
       data: { status: "PENDING" },

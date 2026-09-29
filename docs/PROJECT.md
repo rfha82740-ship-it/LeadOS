@@ -309,3 +309,41 @@ discover ──► scan ──► classifyPost ──► (≥75) ──► Lead 
 3. **اختبار حي ناجح موثق:** `scripts/test-hub.ts` — بوابة الأمان رفضت محتوى خبيث، وZIP اتفك، و6 مهارات دخول المكتبة المحلية من أول حصاد.
 
 **أرقام الإنتاج لحظة كتابة السطرين دول:** 1,149 ليد • 76 جروب مراقب • 65 تكتيك GitSkills محصود • المكتبة المنسّقة ClawHub أول حصاد ليها أول نشر • 19/20 جوب متوازي • 30 كروم حقيقي في ذروة المزرعة.
+
+---
+
+## 13) تدقيق الإنتاج + مركز التحكم (2026-09-30 — ترقية التدقيق الشامل)
+
+### 13.1 الأرقام الرسمية (محسوبة آليًا من الكود — مش مكتوبة بإيد)
+المرجع الدائم: `scripts/system-audit.ts` (تشغيل: `bunx tsx scripts/system-audit.ts --db`)
+- **61 API route** (الرقم الرسمي — «47» و«51» كانوا أرقام قديمة من وثائق سابقة).
+- **67 Prisma model** + 25 enum (متطابقين بين المحلي وNeon — آخر موديل: `WorkspaceSkill`).
+- **11 workflow** = 6 سلاسل ذاتية (browser-farm / worker / ads-library / cron-tick / fb-groups / radar) + 5 أدوات.
+- **19 مهارة CORE** + 17 نوع عقدة TaskGraph.
+
+### 13.2 حقيقة المزرعة (تصحيح «30 متصفح»)
+كل job في المزرعة بيفتح **عمليتين متوازيتين** (`farm.py --part 0/1`) → 15 job × 2 = **30 عامل**، لكن التوزيع الفعلي:
+| النوع | العدد | المنصات |
+|---|---|---|
+| متصفح كروم حقيقي (DrissionPage) | **8** | jobs/marketplace/freelance/directory (4 shards × 2) |
+| SERP worker (DDG HTML + FlareSolverr) | **18** | 9 shards × 2 |
+| HTTP worker (JSON مباشر) | **4** | telegram/reddit × 2 |
+| FlareSolverr (حاوية خدمة) | 15 | حاوية لكل farm job |
+- **Concurrency نظري أقصى: 27 job** (15 farm + 6 سلاسل + 6 chain jobs) — الحد المجاني 20، والتداخل الفعلي أقل لأن الـchain jobs قصيرة (~5 دقايق).
+- اللوحة والوثائق بتقول التوزيع ده بوضوح (شاشة مركز الصحة).
+
+### 13.3 إضافات الترقية دي
+1. **طبقة WORKSPACE Skills كاملة** (43.12): موديل `WorkspaceSkill` + `/api/skills/workspace` (+[id]) — إضافة/تفعيل/تعطيل/استبدال (version+hash)/حذف — كلها بعد بوابة الثقة، والاسترجاع `retrieveSkillsForNode` بيجرّبها بأولوية 1.1 (فوق ClawHub/GitSkills تحت CORE) + تعلم وزن من SkillOutcome.
+2. **تكامل Farm ↔ عقل المهارات**: `/api/farm/plan` (محمي بـINGEST_API_KEY) بيرجع خطة استعلامات بمنشأ كامل (querySource/skillId/skillKind/reason/planId) من الدروس المتعلمة + تكتيكات المكتبتين، و`farm.py` بيسحبها (timeout 8s) و**فشلها = استعلاماته الثابتة** (fallback آمن دايمًا). كل عنصر بيتحمل query+querySource → الـwebhook يسجلها → حلقة التعلم (`recordLesson`/`recordSkillLead`) بتشتغل من ليدز المزرعة تلقائيًا. المهارات معرفة/استراتيجية فقط — لا تنفيذ كود أبدًا.
+3. **فرض ميزانيات DSI فعليًا** (كانت constants): `maxExternalSkillCalls` (عدّاد SkillRetrieval لكل خريطة → مرفوض بالسبب)، `maxAttemptsPerNode` (عقدة استنفدت محاولاتها = فشل نهائي حتى في الاستئناف)، `skillRetrievalBudgetMs` (Promise.race)، `graphBuildBudgetMs` (Promise.race).
+4. **STOP تدعيم كامل**: فحص بداية + فحص **عن بُعد** أثناء اللوب (`git fetch + cat-file`) في كل السلاسل الستة + قبل dispatch. زر إيقاف طوارئ في اللوحة بتأكيد صريح → GitHub Contents API (يتطلب `GITHUB_TOKEN` + `GITHUB_REPO` في Vercel — بدونهم الـAPI بيرجع الحقيقة والخطوات اليدوية بدل ما يزوّر نجاح).
+5. **مركز تحكم جديد**: 7 شاشات (مركز الصحة / العمليات الحية / خرايط DSI + «ليه المهارة دي؟» / مركز المهارات / الطابور مع أفعال retry/cancel/unlock / السجلات والتدقيق بـ7 أنواع / الرادار اللحظي) + شريحة حالة النظام (RUNNING/DEGRADED/STOPPED) في الشريط العلوي.
+6. **APIs جديدة**: `/api/health` (Vercel/Neon/AI/بحث بحي) + `/api/queue` + `/api/logs` + `/api/radar` + `/api/system/stop` + `/api/farm/plan` + `/api/skills/workspace`.
+7. **تقييم موحد**: `calculateLeadScore()` في `src/lib/scoring.ts` هو مصدر الحقيقة الوحيد (بدل computeScore المشتت).
+8. **سكريبت التدقيق الآلي**: PASS/WARN/FAIL على 25 بند — أرقام من الكود والقاعدة.
+
+### 13.4 الاختبارات
+- `scripts/test-audit-fixes.ts`: **27/27 PASS** — بوابة الثقة (4 حالات خطرة = رفض صارم + نظيفة = 100)، كاش الثقة بيتلغي بتغيير البصمة، معادلة التقييم (حد أعلى/أدنى/صانع قرار)، فرض المحاولات والكوتية، مسارات الاسترداد، منع الحلقات، تكامل Workspace.
+- `scripts/test-dsi.ts`: لسه شغال كامل (منع الحلقة اشتغل فعليًا في التشغيل).
+- tsc نظيف على `src/` (الأخطاء المتبقية كلها في `scripts/` اختبارات قديمة خارج البناء).
+- `next build` ناجح (49 صفحة).

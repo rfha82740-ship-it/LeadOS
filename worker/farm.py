@@ -87,6 +87,71 @@ def ext_id(prefix: str, *parts: str) -> str:
     return f"{prefix}:{hashlib.md5(base.encode()).hexdigest()[:12]}"
 
 
+# ---------------------------------------------------------------- Query Plan (تكامل عقل المهارات)
+def fetch_plan(platform: str, niche: str = "") -> dict | None:
+    """اسحب خطة استعلامات من عقل المهارات (Vercel /api/farm/plan).
+    خطة فاشلة/فاضية = None → الاستعلامات الثابتة (fallback آمن دايمًا).
+    الخطة نصوص استعلام بحتة — لا تنفيذ لأي كود منها أبدًا."""
+    base = os.environ.get("LEADOS_BASE_URL", "").rstrip("/")
+    key = os.environ.get("LEADOS_API_KEY", "")
+    if not base or not key:
+        return None
+    try:
+        r = requests.get(
+            f"{base}/api/farm/plan",
+            params={"platform": platform, "niche": niche or "عملاء محتاجين خدمات رقمية في مصر"},
+            headers={"x-api-key": key},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            print(f"  [plan] {platform} رجّع HTTP {r.status_code} — استعلامات ثابتة")
+            return None
+        d = r.json()
+        qs = [q for q in d.get("queries", []) if isinstance(q, dict) and isinstance(q.get("q"), str) and len(q["q"]) >= 6]
+        if not qs:
+            return None
+        print(f"  [plan] {platform}: {len(qs)} استعلام من عقل المهارات (planId={d.get('planId', '?')})")
+        return d
+    except Exception as e:
+        print(f"  [plan] {platform} فشل جلب الخطة ({str(e)[:60]}) — استعلامات ثابتة")
+        return None
+
+
+def plan_queries(plan: dict | None, platform: str) -> tuple[list[str], dict | None]:
+    """(استعلامات الخطة، خريطة provenance لكل استعلام) أو (QUERIES الثابتة، None)"""
+    if not plan:
+        return list(QUERIES.get(platform, [])), None
+    qs: list[str] = []
+    meta: dict[str, dict] = {}
+    for q in plan.get("queries", []):
+        text = str(q.get("q", "")).strip()
+        if text and text not in qs and not any(c in text for c in ";|&$`<>"):
+            qs.append(text)
+            meta[text] = {
+                "querySource": q.get("querySource", "plan"),
+                "skillId": q.get("skillId", ""),
+                "skillKind": q.get("skillKind", ""),
+                "reason": q.get("reason", ""),
+                "planId": plan.get("planId", ""),
+            }
+    return qs or list(QUERIES.get(platform, [])), (meta or None)
+
+
+def with_provenance(item: dict, q: str, meta: dict | None) -> dict:
+    """تثبيت منشأ الاستعلام جوّه العنصر — يوصل للـwebhook ويتسجل مع الليد (43.10)"""
+    m = (meta or {}).get(q, {})
+    if m:
+        item["query"] = q[:200]
+        item["querySource"] = m.get("querySource", "static")
+        item["planId"] = m.get("planId", "")
+        item["skillId"] = m.get("skillId", "")
+        item["skillKind"] = m.get("skillKind", "")
+    else:
+        item["query"] = q[:200]
+        item["querySource"] = "static"
+    return item
+
+
 def has_intent(text: str) -> bool:
     t = (text or "").lower()
     return any(k.lower() in t for k in INTENT_KW)
@@ -149,11 +214,12 @@ def _half(seq, part: int) -> list:
     return [x for i, x in enumerate(seq) if i % 2 == part]
 
 
-def serp_shard(platform: str, part: int = -1) -> list:
+def serp_shard(platform: str, part: int = -1, plan: dict | None = None) -> list:
     domains = PLATFORM_DOMAINS.get(platform, [])
     items = []
+    plan_q, plan_meta = plan_queries(plan, platform)
     flare_first = bool(os.environ.get("FLARESOLVERR_URL"))
-    for q in _half(QUERIES.get(platform, [])[:4], part):
+    for q in _half(plan_q[:4], part):
         if flare_first:
             raw = flare_get(f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}")
             hits = []
@@ -172,8 +238,8 @@ def serp_shard(platform: str, part: int = -1) -> list:
         for h in hits:
             if domains and not any(d in h["url"] for d in domains):
                 continue
-            items.append({"name": h["title"][:180], "url": h["url"],
-                          "externalId": ext_id(platform, h["url"])})
+            items.append(with_provenance({"name": h["title"][:180], "url": h["url"],
+                          "externalId": ext_id(platform, h["url"])}, q, plan_meta))
         time.sleep(random.uniform(2, 4))
     return items
 
@@ -256,7 +322,7 @@ BROWSER_URLS = {
 }
 
 
-def browser_shard(platform: str, part: int = -1) -> list:
+def browser_shard(platform: str, part: int = -1, plan: dict | None = None) -> list:
     from DrissionPage import ChromiumPage, ChromiumOptions
 
     chrome = None
@@ -278,9 +344,10 @@ def browser_shard(platform: str, part: int = -1) -> list:
         page = ChromiumPage(co)
     except Exception as e:
         print(f"  [browser] فشل تشغيل المتصفح: {e} — أرجع لـ FlareSolverr")
-        return flare_shard(platform)
+        return flare_shard(platform, plan=plan)
 
     pats_all = BROWSER_URLS.get(platform, [])
+    plan_q, plan_meta = plan_queries(plan, platform)
     if part >= 0 and len(pats_all) <= 1:
         # منصة بنمط واحد: النمط يتكرر للـparts كلها والتقسيم على الكلمات — الاتنين يفتحوا متصفح فعلًا
         patterns = pats_all
@@ -289,7 +356,7 @@ def browser_shard(platform: str, part: int = -1) -> list:
         patterns = _half(pats_all, part)
         kws_part = -1  # كل part بياخد أنماطه بكلماتها كاملة — صفر ضياع تغطية
     for pattern in patterns:
-        for kw in _half(QUERIES.get(platform, [])[:4], kws_part):
+        for kw in _half(plan_q[:4], kws_part):
             url = pattern.format(kw=kw.replace(" ", "-") if "olx" in pattern else kw.replace(" ", "%20"))
             try:
                 page.get(url, timeout=35)
@@ -314,8 +381,8 @@ def browser_shard(platform: str, part: int = -1) -> list:
                     elif platform == "DIRECTORY" and any(k in href for k in ("company/", "business/", "/en/company")):
                         keep = True
                     if keep:
-                        links.append({"name": txt[:180], "url": href,
-                                      "externalId": ext_id(platform, href)})
+                        links.append(with_provenance({"name": txt[:180], "url": href,
+                                      "externalId": ext_id(platform, href)}, kw, plan_meta))
                 links = list({l["url"]: l for l in links}.values())[:10]
                 print(f"  [browser] {platform} {kw!r} -> {len(links)} عنصر")
                 items.extend(links)
@@ -329,9 +396,10 @@ def browser_shard(platform: str, part: int = -1) -> list:
     return items
 
 
-def flare_shard(platform: str, part: int = -1) -> list:
+def flare_shard(platform: str, part: int = -1, plan: dict | None = None) -> list:
     items = []
-    for q in _half(QUERIES.get(platform, [])[:3], part):
+    plan_q, plan_meta = plan_queries(plan, platform)
+    for q in _half(plan_q[:3], part):
         raw = flare_get(f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}")
         if not raw:
             continue
@@ -342,8 +410,8 @@ def flare_shard(platform: str, part: int = -1) -> list:
                 if u:
                     href = requests.utils.unquote(u.group(1))
             if title and href.startswith("http"):
-                items.append({"name": htmllib.unescape(title)[:180], "url": href,
-                              "externalId": ext_id(platform, href)})
+                items.append(with_provenance({"name": htmllib.unescape(title)[:180], "url": href,
+                              "externalId": ext_id(platform, href)}, q, plan_meta))
         print(f"  [flare] {q[:40]!r} -> {len(items)} تراكمي")
         time.sleep(2)
     return items
@@ -376,20 +444,23 @@ def main() -> int:
     if not client.healthcheck():
         return 2
 
+    # خطة استعلامات من عقل المهارات (فشلها آمن — الثابتة هي الاحتياط)
+    plan = fetch_plan(platform)
+
     if shard_id == "telegram":
         items = telegram_shard(args.part)
     elif shard_id == "reddit":
         items = reddit_shard(args.part)
     elif platform in BROWSER_URLS:
-        items = browser_shard(platform, args.part)
+        items = browser_shard(platform, args.part, plan)
         if not items:
             print("  المتصفح رجّع صفر — جرب FlareSolverr")
-            items = flare_shard(platform, args.part)
+            items = flare_shard(platform, args.part, plan)
     else:
-        items = serp_shard(platform, args.part)
+        items = serp_shard(platform, args.part, plan)
         if not items:
             print("  serp رجّع صفر — جرب FlareSolverr")
-            items = flare_shard(platform, args.part)
+            items = flare_shard(platform, args.part, plan)
 
     items = list({i["externalId"]: i for i in items}.values())
     print(f"📦 {platform}: {len(items)} عنصر جاهز للإرسال")

@@ -179,6 +179,8 @@ export interface RetrievalResult {
   candidatesChecked: number
   semanticUsed: boolean
   budgetMs: number
+  /** لو اتنفّر الاسترجاع بكوتية الميزانية — سبب واضح بدل اختيار صامت */
+  budgetExhausted?: string
 }
 
 function lexicalScore(tokens: string[], hay: string): number {
@@ -210,6 +212,31 @@ export async function retrieveSkillsForNode(opts: {
   const tokens = tokenize(`${opts.objective} ${parsed.domain} ${parsed.dataType}`)
   const rejected: RetrievalResult["rejected"] = []
   let semanticUsed = false
+
+  // ═══ فرض maxExternalSkillCalls فعليًا (43.19) — عدّاد استرجاعات الخريطة الحية ═══
+  // كل نداء استرجاع بيتسجل SkillRetrieval — فوق الكوتية = NO NEED → NO SKILL فورًا
+  // (يمنع دوامة الاسترجاع: RECOVER → RETRIEVE → RECOVER ... بلا سقف)
+  if (opts.graphId) {
+    try {
+      const usedRetrievals = await db.skillRetrieval.count({ where: { graphId: opts.graphId } })
+      if (usedRetrievals >= DSI_BUDGET.maxExternalSkillCalls) {
+        const empty: RetrievalResult = {
+          parsed,
+          selected: [],
+          rejected: [{ key: "-", name: "استرجاع موقوف", kind: "BUDGET", reason: `كوتية استرجاع الخريطة خلصت (${usedRetrievals}/${DSI_BUDGET.maxExternalSkillCalls})`, finalScore: 0 }],
+          candidatesChecked: 0,
+          semanticUsed: false,
+          budgetMs: Date.now() - started,
+          budgetExhausted: `maxExternalSkillCalls (${DSI_BUDGET.maxExternalSkillCalls})`,
+        }
+        await recordRetrieval({
+          workspaceId: opts.workspaceId, graphId: opts.graphId, nodeId: opts.nodeId, taskId: opts.taskId,
+          objective: opts.objective, reason: `BUDGET: maxExternalSkillCalls — استرجاع مرفوض (${usedRetrievals} سابقة)`,
+        }).catch(() => undefined)
+        return empty
+      }
+    } catch { /* عدّاد فشل → نكمل عادي */ }
+  }
 
   // ═══ المرحلة 2 — Candidate Retrieval (CORE + المكتبتين العالميتين بالتوازي) ═══
   // CORE أصلًا في الباندل — بيتحفظ في الذاكرة، والخارجي من المكتبة المحلية المشتركة
@@ -247,8 +274,10 @@ export async function retrieveSkillsForNode(opts: {
 
   let gitRows: Awaited<ReturnType<typeof db.gitSkill.findMany>> = []
   let hubRows: Awaited<ReturnType<typeof db.hubSkill.findMany>> = []
+  let wsRows: Awaited<ReturnType<typeof db.workspaceSkill.findMany>> = []
   try {
-    ;[gitRows, hubRows] = await Promise.all([
+    // طبقة WORKSPACE (43.12: فوق الخارجي تحت CORE) — مهارات الورشة الخاصة مفعّلة فقط
+    ;[gitRows, hubRows, wsRows] = await Promise.all([
       db.gitSkill.findMany({
         where: { status: "ACTIVE" },
         orderBy: [{ weight: "desc" }, { relevance: "desc" }],
@@ -259,11 +288,18 @@ export async function retrieveSkillsForNode(opts: {
         orderBy: [{ weight: "desc" }, { relevance: "desc" }],
         take: 40,
       }),
+      db.workspaceSkill.findMany({
+        where: { workspaceId: opts.workspaceId, status: "ACTIVE" },
+        orderBy: [{ weight: "desc" }, { updatedAt: "desc" }],
+        take: 30,
+      }).catch(() => [] as never),
     ])
   } catch { /* قاعدة تعطلت → CORE يكفي (43.28 #21) */ }
 
   // فلترة لغوية سريعة قبل الترتيب الكامل (سقف المرشحين — 43.19)
   const extRaw = [
+    // WORKSPACE أولًا في القائمة (أولوية 43.12) — بيترتب لاحقًا بالدرجة النهائية
+    ...wsRows.map((r) => ({ kind: "WORKSPACE" as const, key: `WS:${r.id}`, name: r.name, description: r.description, body: r.body, tags: r.tags.split(",").filter(Boolean), repository: "workspace", skillPath: `workspace/${r.name}`, sourceUrl: `/skills?ws=${r.id}`, contentHash: r.contentHash, license: r.license ?? "", trustScore: r.trustScore, status: r.status, weight: r.weight, useCount: r.useCount, leadCount: r.leadCount, updatedAt: r.updatedAt })),
     ...gitRows.map((r) => ({ kind: "GITSKILLS" as const, key: r.path, name: r.name, description: r.description, body: r.body, tags: r.tags.split(",").filter(Boolean), repository: r.repo, skillPath: r.path, sourceUrl: `https://github.com/${r.repo}/blob/main/${r.path}`, contentHash: r.contentHash, license: r.license, trustScore: r.trustScore, status: r.status, weight: r.weight, useCount: r.useCount, leadCount: r.leadCount, updatedAt: r.updatedAt })),
     ...hubRows.map((r) => ({ kind: "CLAWHUB" as const, key: r.slug, name: r.name, description: r.summary, body: r.body, tags: r.tags.split(",").filter(Boolean), repository: "clawhub.ai", skillPath: r.slug, sourceUrl: r.sourceUrl, contentHash: r.contentHash, license: r.license, trustScore: r.trustScore, status: r.status, weight: r.weight, useCount: r.useCount, leadCount: r.leadCount, updatedAt: r.updatedAt })),
   ]
@@ -299,7 +335,7 @@ export async function retrieveSkillsForNode(opts: {
       quality: Math.min(1, c.weight / 3),
       successHistory: ut && ut.attempts >= 2 ? ut.successRate : Math.min(1, c.leadCount / Math.max(c.useCount, 1) || 0.15),
       recency: Math.max(0, 1 - ageDays / 30),
-      compatibility: c.kind === "CLAWHUB" ? 1.0 : 0.95, // ترتيب الأولوية بعد CORE
+      compatibility: c.kind === "WORKSPACE" ? 1.1 : c.kind === "CLAWHUB" ? 1.0 : 0.95, // ترتيب الأولوية 43.12: CORE > WORKSPACE > CLAWHUB > GITSKILLS
       finalScore: 0,
     }
   })
@@ -379,7 +415,8 @@ export async function retrieveSkillsForNode(opts: {
         c.trustScore = t.score
         try {
           if (c.kind === "GITSKILLS") await db.gitSkill.updateMany({ where: { path: c.key }, data: { contentHash: c.contentHash, trustScore: t.score, status: t.verdict === "FAIL" ? "REJECTED" : "ACTIVE" } })
-          else await db.hubSkill.updateMany({ where: { slug: c.key }, data: { contentHash: c.contentHash, trustScore: t.score, status: t.verdict === "FAIL" ? "REJECTED" : "ACTIVE" } })
+          else if (c.kind === "CLAWHUB") await db.hubSkill.updateMany({ where: { slug: c.key }, data: { contentHash: c.contentHash, trustScore: t.score, status: t.verdict === "FAIL" ? "REJECTED" : "ACTIVE" } })
+          else if (c.kind === "WORKSPACE") await db.workspaceSkill.updateMany({ where: { id: c.key.slice(3) }, data: { contentHash: c.contentHash, trustScore: t.score, status: t.verdict === "FAIL" ? "REJECTED" : "ACTIVE", rejectReason: t.verdict === "FAIL" ? (t.reasons.join(" | ") ?? "فشل بوابة الثقة").slice(0, 400) : null } })
         } catch { /* best-effort */ }
         if (t.verdict === "FAIL") {
           rejected.push({ key: c.key, name: c.name, kind: c.kind, reason: `فشل بوابة الثقة: ${t.reasons[0] ?? "غير معروف"}`, finalScore: c.finalScore })

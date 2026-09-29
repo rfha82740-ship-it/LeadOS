@@ -47,6 +47,12 @@ interface WorkerItem {
   handle?: string
   email?: string
   publishedAt?: string
+  // منشأ الاستعلام (تكامل عقل المهارات ↔ المزرعة): كل عنصر يتحمل مصدر استعلامه
+  query?: string
+  querySource?: string
+  planId?: string
+  skillId?: string
+  skillKind?: string
 }
 
 interface WorkerPayload {
@@ -159,7 +165,14 @@ async function handle(req: Request) {
         placeId: str(it.placeId),
         email: str(it.email) ?? str((it as { extra_email?: unknown }).extra_email),
         worker: "external",
+        // منشأ الاستعلام — قابل للتدقيق من اللوحة (43.10)
+        querySource: str(it.querySource) ?? "static",
+        planId: str(it.planId),
+        skillId: str(it.skillId),
+        skillKind: str(it.skillKind),
       },
+      // يغذي حلقة التعلم تلقائيًا: recordSkillLead + recordLesson في الابتلاع
+      viaQuery: str(it.query),
     })
   }
   if (!discovered.length) return jsonError("كل العناصر ناقصة الاسم — لا يمكن المعالجة", 400)

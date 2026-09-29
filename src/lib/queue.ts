@@ -803,7 +803,7 @@ export async function processTick(
           workspaceId: rule.workspaceId,
           type: "DISCOVERY",
           status: { in: ["QUEUED", "RETRYING", "RUNNING"] },
-          payload: { path: ["ruleId"], equals: rule.id },
+          payload: { path: "ruleId", equals: rule.id },
         },
         select: { id: true },
       })

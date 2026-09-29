@@ -81,6 +81,7 @@ model Workspace {
   skillStats      SkillStat[]
   skillLessons    SkillLesson[]
   taskGraphs      TaskGraph[]
+  workspaceSkills WorkspaceSkill[]
 }
 
 // ═══ عقل المهارات — الإحصاء والتعلم (doc §3) ═══
@@ -1518,4 +1519,35 @@ model LeadExport {
   createdAt   DateTime @default(now())
 
   @@index([workspaceId, createdAt])
+}
+
+// ═══ طبقة مهارات الورشة (Workspace Skills — 43.12) ═══
+// مهارات خاصة بالورشة يضيفها المستخدم/الـAI بموافقة — تمر بوابة الثقة كاملة،
+// وتوفر معرفة/استراتيجية فقط (لا تنفيذ كود أبدًا). الأولوية: CORE > WORKSPACE > CLAWHUB > GITSKILLS.
+model WorkspaceSkill {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  name         String
+  description  String    @default("")
+  body         String
+  tags         String    @default("") // مفصولة بفواصل
+  status       String    @default("ACTIVE") // ACTIVE | INACTIVE | REJECTED
+  sourceRef    String    @default("manual") // manual | ai-proposal | import:...
+  license      String    @default("")
+  version      Int       @default(1)
+  contentHash  String    @default("") // بصمة المحتوى — تغييرها = إعادة فحص الثقة (43.18)
+  trustScore   Int       @default(0) // 0-100 من بوابة الثقة (43.8)
+  rejectReason String?   // سبب الرفض لو البوابة رفضت (43.28 #19)
+  weight       Float     @default(1.0)
+  useCount     Int       @default(0)
+  leadCount    Int       @default(0)
+  activatedAt  DateTime?
+  createdBy    String?   // userId لو دخول يدوي
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([status, updatedAt])
 }

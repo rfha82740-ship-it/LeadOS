@@ -28,7 +28,11 @@ jobs:
 
       - name: 5 نبضات كل 10 دقايق (~50 دقيقة)
         run: |
+          # ═══ فرملة STOP: فحص بداية + فحص عن بُعد قبل كل نبضة ═══
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — لا تشغيل"; exit 0; fi
+          stop_now() { git fetch -q origin "${GITHUB_REF_NAME:-main}" 2>/dev/null || return 1; git cat-file -e "FETCH_HEAD:.github/STOP" 2>/dev/null; }
           for i in 1 2 3 4 5; do
+            if stop_now; then echo "🛑 .github/STOP ظهرت عن بُعد — وقف فوري"; exit 0; fi
             echo "💓 نبضة $i/5 ($(date -u +%H:%M) UTC)"
             RESPONSE=$(curl -sS -m 120 -w "\nHTTP_STATUS:%{http_code}" \
               -X POST "${{ secrets.LEADOS_BASE_URL }}/api/cron/tick?secret=${{ secrets.CRON_SECRET }}" \

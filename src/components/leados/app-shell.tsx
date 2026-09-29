@@ -22,15 +22,29 @@ import { AnalyticsView } from "./views/analytics"
 import { TasksView } from "./views/tasks"
 import { SettingsView } from "./views/settings"
 import { GroupsView } from "./views/groups"
+import { HealthView } from "./views/health"
+import { OpsView } from "./views/ops"
+import { GraphView } from "./views/graph"
+import { SkillsView } from "./views/skills"
+import { QueueView } from "./views/queue"
+import { LogsView } from "./views/logs"
+import { RadarView } from "./views/radar"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import {
   LayoutDashboard, Radar, Users, KanbanSquare, FlaskConical, Database,
   SlidersHorizontal, Bot, BarChart3, CheckSquare, Settings, LogOut,
   Crosshair, Bell, RefreshCw, MessageSquareDot, Coffee, Megaphone, BrainCircuit, MessagesSquare, Repeat,
+  Activity, RadioTower, Network, Wrench, ListTree, ScrollText, Target, Power,
 } from "lucide-react"
 
 const NAV: Array<{ key: ViewKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: "overview", label: "نظرة عامة", icon: LayoutDashboard },
+  { key: "health", label: "مركز الصحة", icon: Activity },
+  { key: "ops", label: "العمليات الحية", icon: RadioTower },
+  { key: "graph", label: "خرايط التفكير DSI", icon: Network },
+  { key: "skills", label: "مركز المهارات", icon: Wrench },
   { key: "groups", label: "تحدي الجروبات", icon: MessageSquareDot },
+  { key: "radar", label: "الرادار اللحظي", icon: Target },
   { key: "feed", label: "البث المباشر", icon: Radar },
   { key: "leads", label: "العملاء المحتملون", icon: Users },
   { key: "pipeline", label: "خط المبيعات", icon: KanbanSquare },
@@ -42,6 +56,8 @@ const NAV: Array<{ key: ViewKey; label: string; icon: React.ComponentType<{ clas
   { key: "agent", label: "الأيجنت الذكي", icon: Crosshair },
   { key: "entity", label: "الكيان المستقل", icon: BrainCircuit },
   { key: "zizo", label: "زيزو — كيان البيع", icon: MessagesSquare },
+  { key: "queue", label: "الطابور والجوبات", icon: ListTree },
+  { key: "logs", label: "السجلات والتدقيق", icon: ScrollText },
   { key: "analytics", label: "التحليلات", icon: BarChart3 },
   { key: "tasks", label: "المهام", icon: CheckSquare },
   { key: "settings", label: "الإعدادات", icon: Settings },
@@ -68,12 +84,18 @@ export function AppShell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     window.localStorage.setItem("leados:panel", p)
   }
 
-  // Poll unread alerts
+  // Poll unread alerts + system state
+  const [sysState, setSysState] = useState<{ state: string; stopFile: string }>({ state: "...", stopFile: "unknown" })
+  const [stopOpen, setStopOpen] = useState(false)
+  const [stopBusy, setStopBusy] = useState(false)
   useEffect(() => {
     let stop = false
     const load = () => {
       apiGet<{ unread: number }>("/api/alerts")
         .then((d) => { if (!stop) setUnread(d.unread) })
+        .catch(() => undefined)
+      apiGet<{ systemState: string; stopFile: string }>("/api/system/stop")
+        .then((d) => { if (!stop) setSysState({ state: d.systemState, stopFile: d.stopFile }) })
         .catch(() => undefined)
     }
     load()
@@ -105,6 +127,20 @@ export function AppShell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       window.dispatchEvent(new CustomEvent("leados:refresh"))
     } finally {
       setTimeout(() => setTicking(false), 800)
+    }
+  }
+
+  const doStop = async (mode: "stop" | "resume") => {
+    setStopBusy(true)
+    try {
+      await apiSend("/api/system/stop", "POST", mode === "stop" ? { confirm: "STOP", mode } : { mode })
+      window.dispatchEvent(new CustomEvent("leados:refresh"))
+      setSysState((s) => ({ ...s, state: mode === "stop" ? "STOPPED" : "RUNNING", stopFile: mode === "stop" ? "EXISTS" : "ABSENT" }))
+    } catch {
+      // الخطأ بيظهر من الـAPI نفسه — الحالة هتتحدث من الـpolling
+    } finally {
+      setStopBusy(false)
+      setStopOpen(false)
     }
   }
 
@@ -212,11 +248,26 @@ export function AppShell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             </h2>
 
             <div className="ms-auto flex items-center gap-2">
-              <span className="hidden items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-2.5 py-1 text-[11px] font-semibold text-primary xl:flex">
-                <span className="live-dot h-1.5 w-1.5 rounded-full bg-primary" />
-                نظام الاكتشاف يعمل
+              <span className={cn("hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold xl:flex",
+                sysState.state === "RUNNING" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+                sysState.state === "DEGRADED" && "border-amber-500/30 bg-amber-500/10 text-amber-300",
+                sysState.state === "STOPPED" && "border-rose-500/30 bg-rose-500/10 text-rose-300",
+                !["RUNNING", "DEGRADED", "STOPPED"].includes(sysState.state) && "border-muted bg-secondary text-muted-foreground")}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", sysState.state === "RUNNING" ? "bg-emerald-500" : sysState.state === "DEGRADED" ? "bg-amber-500" : "bg-rose-500")} />
+                {sysState.state === "RUNNING" ? "النظام يعمل" : sysState.state === "DEGRADED" ? "متدهور — تحقق من النبضة" : sysState.state === "STOPPED" ? "موقوف (STOP)" : `الحالة: ${sysState.state}`}
               </span>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={runTick} disabled={ticking}>
+              {sysState.stopFile === "EXISTS" ? (
+                <Button variant="outline" size="sm" className="gap-1.5 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10" onClick={() => doStop("resume")} disabled={stopBusy}>
+                  <RefreshCw className={cn("h-3.5 w-3.5", stopBusy && "animate-spin")} />
+                  <span className="hidden sm:inline">استئناف النظام</span>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" className="gap-1.5 border-rose-500/40 text-rose-300 hover:bg-rose-500/10" onClick={() => setStopOpen(true)}>
+                  <Power className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">إيقاف الطوارئ</span>
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={runTick} disabled={ticking || sysState.stopFile === "EXISTS"}>
                 <RefreshCw className={cn("h-3.5 w-3.5", ticking && "animate-spin")} />
                 <span className="hidden sm:inline">تشغيل دورة اكتشاف</span>
               </Button>
@@ -263,8 +314,38 @@ export function AppShell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {view === "analytics" && <AnalyticsView />}
           {view === "tasks" && <TasksView onOpenLead={openLead} />}
           {view === "settings" && <SettingsView me={me} />}
+          {view === "health" && <HealthView />}
+          {view === "ops" && <OpsView />}
+          {view === "graph" && <GraphView />}
+          {view === "skills" && <SkillsView />}
+          {view === "queue" && <QueueView />}
+          {view === "logs" && <LogsView />}
+          {view === "radar" && <RadarView onOpenLead={openLead} />}
         </main>
       </div>
+
+      {/* ═══ تأكيد الإيقاف الطارئ — الإجراء أخطر شيء في النظام فالتأكيد صريح ═══ */}
+      <AlertDialog open={stopOpen} onOpenChange={setStopOpen}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-rose-400">إيقاف طارئ للنظام بالكامل؟</AlertDialogTitle>
+            <AlertDialogDescription>
+              هذا سينشئ ملف <code dir="ltr" className="rounded bg-secondary px-1">.github/STOP</code> في الريبو — كل السلاسل الستة (المزرعة، العامل، الإعلانات، النبضة، الجروبات، الرادار) ستتوقف عند أقرب دورة، ولن تنطلق جيل جديد.
+              للاستئناف لاحقًا اضغط زر «استئناف النظام» أو احذف الملف من GitHub.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={stopBusy}>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              disabled={stopBusy}
+              onClick={(e) => { e.preventDefault(); doStop("stop") }}
+            >
+              {stopBusy ? "جارٍ الإيقاف…" : "نعم — أوقف كل شيء"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -54,12 +54,14 @@ jobs:
       - name: مسح جروبات — دورات متكررة ~45 دقيقة
         run: |
           if [ -f .github/STOP ]; then echo "🛑 STOP موجودة — مفيش مسح"; exit 0; fi
+          stop_now() { git fetch -q origin "${GITHUB_REF_NAME:-main}" 2>/dev/null || return 1; git cat-file -e "FETCH_HEAD:.github/STOP" 2>/dev/null; }
           PASS=0
           while [ $SECONDS -lt 2640 ]; do
+            if stop_now; then echo "🛑 STOP ظهرت عن بُعد — وقف فوري"; exit 0; fi
             PASS=$((PASS+1))
             echo "🔍 دورة #$PASS — $(date -u +%H:%M) UTC"
             bunx tsx scripts/fb-scan-local.ts 5 || echo "⚠️ دورة فيها أخطاء جزئية — نكمل"
-            if [ -f .github/STOP ]; then echo "🛑 STOP ظهرت أثناء التشغيل"; exit 0; fi
+            if [ -f .github/STOP ] || stop_now; then echo "🛑 STOP ظهرت أثناء التشغيل"; exit 0; fi
             sleep 900   # 15 دقيقة بين الدورات — إيقاع محترم لحساب فيسبوك
           done
           echo "✅ انتهت $PASS دورات مسح في $((SECONDS/60)) دقيقة"

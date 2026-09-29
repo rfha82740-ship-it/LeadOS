@@ -52,8 +52,12 @@ jobs:
 
       - name: اسكراب مكتبة الإعلانات — دفعات متكررة ~40 دقيقة
         run: |
+          # ═══ فرملة STOP: فحص بداية + فحص عن بُعد كل دفعة ═══
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — لا تشغيل"; exit 0; fi
+          stop_now() { git fetch -q origin "${GITHUB_REF_NAME:-main}" 2>/dev/null || return 1; git cat-file -e "FETCH_HEAD:.github/STOP" 2>/dev/null; }
           PASS=0
           while [ $SECONDS -lt 2400 ]; do
+            if stop_now; then echo "🛑 .github/STOP ظهرت عن بُعد — وقف فوري"; exit 0; fi
             PASS=$((PASS+1))
             echo "🎯 دفعة إعلانات #$PASS ($(date -u +%H:%M) UTC)"
             python scripts/adslib/scraper.py || echo "⚠️ دفعة $PASS فشلت — نكمل"

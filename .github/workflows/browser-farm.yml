@@ -60,6 +60,9 @@ jobs:
 
       - name: تشغيل الـshard — متصفحين متوازيين × sweeps متكررة ~45 دقيقة
         run: |
+          # ═══ فرملة STOP: فحص بداية + فحص عن بُعد قبل كل sweep ═══
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — لا تشغيل"; exit 0; fi
+          stop_now() { git fetch -q origin "${GITHUB_REF_NAME:-main}" 2>/dev/null || return 1; git cat-file -e "FETCH_HEAD:.github/STOP" 2>/dev/null; }
           WANT="${{ inputs.shard }}"
           MINE="${{ matrix.shard }}"
           if [ -n "$WANT" ] && [ "$WANT" != "$MINE" ]; then echo "⏭ shard $MINE مش المطلوب ($WANT)"; exit 0; fi
@@ -68,6 +71,7 @@ jobs:
           echo "chrome: $CHROME"
           PASS=0
           while [ $SECONDS -lt 2640 ]; do
+            if stop_now; then echo "🛑 .github/STOP ظهرت عن بُعد — وقف فوري"; exit 0; fi
             PASS=$((PASS+1))
             echo "🚜 Sweep #$PASS — shard $MINE ×2 متصفحين متوازيين ($(date -u +%H:%M) UTC)"
             python worker/farm.py --shard $MINE --shards 15 --part 0 & P0=$!

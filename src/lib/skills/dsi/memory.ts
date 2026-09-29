@@ -45,16 +45,23 @@ export async function recordSkillOutcome(inp: SkillOutcomeInput): Promise<void> 
     })
   } catch { /* السجل best-effort */ }
 
-  // تحديث وزن المكتبة المشتركة (GitSkills/ClawHub بس — CORE تسيطر عليها تعلم المنصات)
+  // تحديث وزن المكتبة المشتركة (GitSkills/ClawHub/Workspace — CORE تسيطر عليها تعلم المنصات)
   try {
+    const delta = inp.outcome === "SUCCESS" ? 0.15 : inp.outcome === "PARTIAL" ? 0.05 : -0.1
     if (inp.skillKind === "GITSKILLS") {
-      const delta = inp.outcome === "SUCCESS" ? 0.15 : inp.outcome === "PARTIAL" ? 0.05 : -0.1
       const row = await db.gitSkill.findFirst({ where: { OR: [{ path: inp.skillKey }, { name: inp.skillKey }] }, select: { id: true, weight: true } })
       if (row) await db.gitSkill.update({ where: { id: row.id }, data: { weight: clampW(row.weight + delta) } })
     } else if (inp.skillKind === "CLAWHUB") {
-      const delta = inp.outcome === "SUCCESS" ? 0.15 : inp.outcome === "PARTIAL" ? 0.05 : -0.1
       const row = await db.hubSkill.findFirst({ where: { OR: [{ slug: inp.skillKey }, { name: inp.skillKey }] }, select: { id: true, weight: true } })
       if (row) await db.hubSkill.update({ where: { id: row.id }, data: { weight: clampW(row.weight + delta) } })
+    } else if (inp.skillKind === "WORKSPACE" && inp.skillKey.startsWith("WS:")) {
+      const row = await db.workspaceSkill.findUnique({ where: { id: inp.skillKey.slice(3) }, select: { id: true, weight: true } })
+      if (row) {
+        await db.workspaceSkill.update({
+          where: { id: row.id },
+          data: { weight: clampW(row.weight + delta), useCount: { increment: 1 }, leadCount: inp.outcome === "SUCCESS" ? { increment: 1 } : undefined },
+        })
+      }
     }
   } catch { /* التعلم best-effort */ }
 }

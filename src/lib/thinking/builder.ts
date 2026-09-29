@@ -109,9 +109,10 @@ export async function buildThinkingGraph(
     "سوق مصري — لغة عربية مصرية للتواصل",
   ]
 
-  // ═══ Master AI يبني خريطة مخصصة — بحد زمن صارم ═══
+  // ═══ Master AI يبني خريطة مخصصة — بحد زمن صارم (فرض graphBuildBudgetMs فعليًا) ═══
   try {
-    const result = await aiChatJson<{ assumptions?: string[]; nodes?: Array<Partial<GraphNodeContract>> }>(
+    const result = await Promise.race([
+      aiChatJson<{ assumptions?: string[]; nodes?: Array<Partial<GraphNodeContract>> }>(
       [
         {
           role: "system",
@@ -125,7 +126,9 @@ export async function buildThinkingGraph(
         { role: "user", content: `الهدف: ${goal}\nالنطاق المكتشف: ${JSON.stringify(parsed)}` },
       ],
       { workspaceId, runType: "GRAPH_BUILD", temperature: 0.2, maxTokens: 900, task: "reason" },
-    )
+    ),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), DSI_BUDGET.graphBuildBudgetMs)),
+    ])
     const rawNodes = result?.nodes ?? []
     if (Array.isArray(rawNodes) && rawNodes.length >= 4) {
       const candidate: GraphNodeContract[] = rawNodes.map((n, i) => ({

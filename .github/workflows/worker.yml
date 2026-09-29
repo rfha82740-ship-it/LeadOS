@@ -52,6 +52,9 @@ jobs:
       - name: دورة اكتشاف — دورات متكررة ~45 دقيقة
         working-directory: worker
         run: |
+          # ═══ فرملة STOP: فحص بداية + فحص عن بُعد كل دورة (الملف يشتغل حتى لو اتحط بعد الإقلاع) ═══
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — لا تشغيل"; exit 0; fi
+          stop_now() { git fetch -q origin "${GITHUB_REF_NAME:-main}" 2>/dev/null || return 1; git cat-file -e "FETCH_HEAD:.github/STOP" 2>/dev/null; }
           # إعدادات وضع once لـ GitHub Actions
           python - <<'PY'
           import yaml, pathlib
@@ -64,6 +67,7 @@ jobs:
           PY
           PASS=0
           while [ $SECONDS -lt 2640 ]; do
+            if stop_now; then echo "🛑 .github/STOP ظهرت عن بُعد — وقف فوري"; exit 0; fi
             PASS=$((PASS+1))
             echo "⚙️ دورة اكتشاف #$PASS ($(date -u +%H:%M) UTC)"
             python bot.py run || echo "⚠️ دورة $PASS فيها أخطاء — نكمل"

@@ -1,6 +1,8 @@
 // LeadOS — Lead Scoring Engine (doc §14)
 // Score 0-100: Intent 30, BusinessFit 20, DecisionMaker 15, Urgency 10,
 //              RecentActivity 10, Contactability 5, OpportunityStrength 10
+// مصدر الحقيقة الوحيد للـLead score: calculateLeadScore — أي مكان محتاج معادلة التقييم
+// بينادي دي (أو recomputeLeadScore للحساب+الحفظ). ممنوع معادلة مكررة في ملف تاني.
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { asArray, temperatureFromScore } from "@/lib/constants"
@@ -21,7 +23,8 @@ interface ScoreInput {
   opportunityScore: number   // 0-100 (max opportunity strength)
 }
 
-export function computeScore(input: ScoreInput): ScoreBreakdown {
+/** المعادلة الرسمية الموحدة للنتيجة — قابل للتفسير: breakdown بأجزاء مسماة + whyNow/nextBestAction أعلى */
+export function calculateLeadScore(input: ScoreInput): ScoreBreakdown {
   const parts: Record<string, number> = {}
   parts.intent = Math.round((input.intentScore / 100) * 30)
   parts.businessFit = Math.round((input.fitScore / 100) * 20)
@@ -33,6 +36,9 @@ export function computeScore(input: ScoreInput): ScoreBreakdown {
   const total = Object.values(parts).reduce((a, b) => a + b, 0)
   return { total, parts, temperature: temperatureFromScore(total) }
 }
+
+/** اسم قديم محفوظ للتوافق — كل الكود بينادي calculateLeadScore الآن */
+export const computeScore = calculateLeadScore
 
 /** Recompute score for a lead based on its relations, persist, and log activity. */
 export async function recomputeLeadScore(leadId: string, opts?: { workspaceId?: string }): Promise<ScoreBreakdown | null> {
