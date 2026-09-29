@@ -579,6 +579,281 @@ export const AGENT_TOOLS: AgentTool[] = [
       return { ok: true, note: `مسح «${competitor}»: ${items.length} إشارة → ${created} ليد جديد (${duplicates} مكرر)`, data: { created, duplicates } }
     },
   },
+
+  // ═══════════ Dynamic Skill Intelligence Layer — أدوات الخريطة والمهارات (مواصفة 43.23) ═══════════
+  // كل الأدوات DB-backed (gate: ready) — والفشل بيرجع note واضح بدون كسر اللوب.
+  {
+    name: "create_thinking_graph",
+    description: "ابنِ خريطة تفكير ديناميكية لهدف (Thinking Graph): تُقسّم الهدف لعقد مرتبطة بمهارات وتُنفّذ أول شريحة. args: objective",
+    gate: "ready",
+    run: async (args) => {
+      const { runAgentGraph } = await import("@/lib/thinking/engine")
+      const wsId = String(args.workspace_id ?? "")
+      const objective = String(args.objective ?? "").trim()
+      if (!wsId || objective.length < 5) return { ok: false, note: "workspace_id أو objective مفقود/قصير" }
+      const r = await runAgentGraph(wsId, objective, { trigger: "TOOL", budgetMs: 60_000 })
+      return { ok: true, note: `خريطة ${r.graphId.slice(0, 8)} (${r.builtBy}): ${r.status} — ${r.steps.length} عقدة تنفتذت، النتيجة: ${JSON.stringify(r.finalResult).slice(0, 160)}`, data: { graphId: r.graphId, status: r.status, steps: r.steps.slice(0, 12), finalResult: r.finalResult } }
+    },
+  },
+  {
+    name: "inspect_thinking_graph",
+    description: "افحص خريطة تفكير: إجابات الوعي (بعمل إيه/ليه/إيه الدليل/إيه البلوكر) + كل العقد. args: graph_id",
+    gate: "ready",
+    run: async (args) => {
+      const { inspectThinkingGraph } = await import("@/lib/thinking/engine")
+      const r = await inspectThinkingGraph(String(args.graph_id ?? ""))
+      if (!r) return { ok: false, note: "خريطة غير موجودة" }
+      const a = r.awareness
+      return { ok: true, note: `${a.whatAmIDoing} | ${a.evidenceSummary} | تقدم ${a.progress.done}/${a.progress.total}`, data: r }
+    },
+  },
+  {
+    name: "update_thinking_graph",
+    description: "حدّث عقدة في خريطة: غيّر status (PENDING|SKIPPED) أو objective — لإعادة التخطيط اليدوي. args: graph_id, node_id, status?, objective?",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const nodeId = String(args.node_id ?? "")
+      const graphId = String(args.graph_id ?? "")
+      if (!graphId || !nodeId) return { ok: false, note: "graph_id/node_id مفقود" }
+      const data: Record<string, unknown> = {}
+      if (args.status && ["PENDING", "SKIPPED"].includes(String(args.status))) data.status = String(args.status)
+      if (args.objective) data.objective = String(args.objective).slice(0, 300)
+      if (!Object.keys(data).length) return { ok: false, note: "مفيش تعديلات صالحة (status=PENDING/SKIPPED أو objective)" }
+      const res = await dbx.db.taskGraphNode.updateMany({ where: { graphId, nodeId }, data: data as never })
+      return { ok: res.count > 0, note: res.count ? `اتحدّثت العقدة ${nodeId}` : "العقدة غير موجودة" }
+    },
+  },
+  {
+    name: "get_current_route",
+    description: "إيه العقدة الجاية القانونية في الخريطة دلوقتي؟ (الفacts بتحدد الroute). args: graph_id",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const graphId = String(args.graph_id ?? "")
+      const nodes = await dbx.db.taskGraphNode.findMany({ where: { graphId }, orderBy: [{ priority: "desc" }, { createdAt: "asc" }] })
+      if (!nodes.length) return { ok: false, note: "خريطة فاضية/غير موجودة" }
+      const settled = new Set(nodes.filter((n) => ["DONE", "SKIPPED", "FAILED"].includes(n.status)).map((n) => n.nodeId))
+      const ready = nodes.find((n) => n.status === "PENDING" && ((n.dependencies as string[] | null) ?? []).every((d) => settled.has(d)))
+      return { ok: true, note: ready ? `الroute الحالي: ${ready.nodeId} (${ready.type}) — ${ready.objective.slice(0, 100)}` : `مفيش عقدة جاهزة — الحالة: ${nodes[0].status}`, data: { ready: ready?.nodeId ?? null, pending: nodes.filter((n) => n.status === "PENDING").length } }
+    },
+  },
+  {
+    name: "search_gitskills",
+    description: "ابحث في المكتبات العالمية (GitSkills 3.8M المحصودة + ClawHub) عن مهارات لاستعلام حر — ترتيب بالصلة والثقة. args: query, limit?",
+    gate: "ready",
+    run: async (args) => {
+      const { searchExternalSkills } = await import("@/lib/skills/dsi/retriever")
+      const q = String(args.query ?? "").trim()
+      if (q.length < 3) return { ok: false, note: "استعلام قصير جدًا" }
+      const found = await searchExternalSkills(q, Math.min(Number(args.limit ?? 5), 10))
+      return { ok: true, note: found.length ? `${found.length} مهارة: ${found.map((f) => `[${f.kind}] ${f.name} (${f.finalScore.toFixed(2)})`).join("، ")}` : "مفيش مهارة مطابقة في المكتبات المحصودة — الحصاد الدوري هيوسّع الفهرس", data: found.map((f) => ({ kind: f.kind, key: f.key, name: f.name, score: f.finalScore, trust: f.trustScore, source: f.sourceUrl })) }
+    },
+  },
+  {
+    name: "rank_gitskills",
+    description: "رتّب مرشحي مهارات لعقدة معينة بخط الاسترجاع الكامل (دلالي+لغوي+ثقة+ذاكرة). args: workspace_id, objective, node_type?",
+    gate: "ready",
+    run: async (args) => {
+      const { retrieveSkillsForNode } = await import("@/lib/skills/dsi/retriever")
+      const wsId = String(args.workspace_id ?? "")
+      const objective = String(args.objective ?? "")
+      if (!wsId || objective.length < 5) return { ok: false, note: "workspace_id/objective مفقود" }
+      const r = await retrieveSkillsForNode({ workspaceId: wsId, objective, nodeType: String(args.node_type ?? "DISCOVER") })
+      return { ok: true, note: `فهم: ${r.parsed.domain}/${r.parsed.action}${r.parsed.platform ? `/${r.parsed.platform}` : ""} — مختار ${r.selected.length}، مرفوض ${r.rejected.length}، مرشح ${r.candidatesChecked}${r.semanticUsed ? " (دلالي شغال)" : " (لغوي بس)"}`, data: { selected: r.selected, rejected: r.rejected, parsed: r.parsed } }
+    },
+  },
+  {
+    name: "inspect_skill",
+    description: "افحص مهارة من المكتبات: منشأ كامل (ريبو/بصمة/رخصة) + نص التعليمات. args: kind (GITSKILLS|CLAWHUB|CORE), key",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const kind = String(args.kind ?? "").toUpperCase()
+      const key = String(args.key ?? "")
+      if (kind === "GITSKILLS") {
+        const s = await dbx.db.gitSkill.findFirst({ where: { OR: [{ path: key }, { name: key }] } })
+        if (!s) return { ok: false, note: "مش موجودة في GitSkills المحصودة" }
+        return { ok: true, note: `[GitSkills] ${s.name} — ${s.repo}/${s.path} (ثقة ${s.trustScore}، ${s.status})`, data: { repo: s.repo, path: s.path, url: `https://github.com/${s.repo}/blob/main/${s.path}`, trustScore: s.trustScore, status: s.status, contentHash: s.contentHash, license: s.license, weight: s.weight, body: s.body.slice(0, 800) } }
+      }
+      if (kind === "CLAWHUB") {
+        const s = await dbx.db.hubSkill.findFirst({ where: { OR: [{ slug: key }, { name: key }] } })
+        if (!s) return { ok: false, note: "مش موجودة في ClawHub المحصود" }
+        return { ok: true, note: `[ClawHub] ${s.name} — ${s.slug} (ثقة ${s.trustScore}، ${s.status})`, data: { slug: s.slug, url: s.sourceUrl, trustScore: s.trustScore, status: s.status, contentHash: s.contentHash, license: s.license, weight: s.weight, body: s.body.slice(0, 800) } }
+      }
+      const { SKILL_BY_PLATFORM } = await import("@/lib/skills/registry")
+      const s = SKILL_BY_PLATFORM[key.toUpperCase()]
+      if (!s) return { ok: false, note: `مش مهارة CORE معروفة: ${key}` }
+      return { ok: true, note: `[CORE] ${s.platform}: ${s.description.slice(0, 100)}`, data: { platform: s.platform, path: s.path, body: s.body.slice(0, 800) } }
+    },
+  },
+  {
+    name: "validate_skill",
+    description: "شغّل بوابة الثقة الكاملة (9 مراحل) على مهارة وسجل النتيجة — بدون تفعيل. args: kind, key",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const { assessSkillTrust, contentHashOf } = await import("@/lib/skills/dsi/trust")
+      const kind = String(args.kind ?? "").toUpperCase()
+      const key = String(args.key ?? "")
+      let input: { name: string; description: string; body: string; sourceRef: string; license?: string } | null = null
+      if (kind === "GITSKILLS") { const s = await dbx.db.gitSkill.findFirst({ where: { OR: [{ path: key }, { name: key }] } }); if (s) input = { name: s.name, description: s.description, body: s.body, sourceRef: s.repo, license: s.license } }
+      else if (kind === "CLAWHUB") { const s = await dbx.db.hubSkill.findFirst({ where: { OR: [{ slug: key }, { name: key }] } }); if (s) input = { name: s.name, description: s.summary, body: s.body, sourceRef: s.slug, license: s.license } }
+      if (!input) return { ok: false, note: "المهارة غير موجودة (kind=GITSKILLS|CLAWHUB)" }
+      const t = assessSkillTrust({ kind: kind as "GITSKILLS" | "CLAWHUB", ...input })
+      const hash = contentHashOf(`${input.name}\n${input.description}\n${input.body}`)
+      if (kind === "GITSKILLS") await dbx.db.gitSkill.updateMany({ where: { name: input.name }, data: { trustScore: t.score, status: t.verdict === "FAIL" ? "REJECTED" : "ACTIVE", contentHash: hash } })
+      else await dbx.db.hubSkill.updateMany({ where: { name: input.name }, data: { trustScore: t.score, status: t.verdict === "FAIL" ? "REJECTED" : "ACTIVE", contentHash: hash } })
+      return { ok: t.verdict === "PASS", note: `بوابة الثقة: ${t.verdict} (${t.score}/100)${t.reasons.length ? ` — ${t.reasons.join("؛ ")}` : ""}`, data: { score: t.score, verdict: t.verdict, hardReject: t.hardReject, checks: t.checks } }
+    },
+  },
+  {
+    name: "activate_skill",
+    description: "فعّل مهارة خارجية مرفوضة سابقًا (status→ACTIVE) بعد إعادة الفحص — السياسة بتظل فوقها. args: kind, key",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const kind = String(args.kind ?? "").toUpperCase()
+      const key = String(args.key ?? "")
+      if (kind === "GITSKILLS") { const r = await dbx.db.gitSkill.updateMany({ where: { OR: [{ path: key }, { name: key }] }, data: { status: "ACTIVE" } }); return { ok: r.count > 0, note: r.count ? "اتفعّلت (زي ما هي مش بتفوّت بوابة الثقة عند الاسترجاع)" : "غير موجودة" } }
+      if (kind === "CLAWHUB") { const r = await dbx.db.hubSkill.updateMany({ where: { OR: [{ slug: key }, { name: key }] }, data: { status: "ACTIVE" } }); return { ok: r.count > 0, note: r.count ? "اتفعّلت" : "غير موجودة" } }
+      return { ok: false, note: "kind لازم يكون GITSKILLS أو CLAWHUB" }
+    },
+  },
+  {
+    name: "deactivate_skill",
+    description: "عطّل مهارة خارجية (status→BLOCKED) — مش هتظهر في أي استرجاع. args: kind, key",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const kind = String(args.kind ?? "").toUpperCase()
+      const key = String(args.key ?? "")
+      if (kind === "GITSKILLS") { const r = await dbx.db.gitSkill.updateMany({ where: { OR: [{ path: key }, { name: key }] }, data: { status: "BLOCKED" } }); return { ok: r.count > 0, note: r.count ? "اتعطّلت (BLOCKED)" : "غير موجودة" } }
+      if (kind === "CLAWHUB") { const r = await dbx.db.hubSkill.updateMany({ where: { OR: [{ slug: key }, { name: key }] }, data: { status: "BLOCKED" } }); return { ok: r.count > 0, note: r.count ? "اتعطّلت (BLOCKED)" : "غير موجودة" } }
+      return { ok: false, note: "kind لازم يكون GITSKILLS أو CLAWHUB" }
+    },
+  },
+  {
+    name: "inspect_skill_history",
+    description: "سجل استرجاعات مهارة: امتى اتجّابت واتختارت واترفضت ولية. args: key, limit?",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const key = String(args.key ?? "")
+      const rows = await dbx.db.skillRetrieval.findMany({ orderBy: { createdAt: "desc" }, take: Math.min(Number(args.limit ?? 10), 30) })
+      const hits = rows.filter((r) => {
+        const sel = (r.selected as Array<{ key?: string }> | null) ?? []
+        const rej = (r.rejected as Array<{ key?: string }> | null) ?? []
+        return sel.some((s) => s.key === key) || rej.some((s) => s.key === key)
+      })
+      return { ok: true, note: hits.length ? `${hits.length} استرجاع فيه المهارة دي` : "مفيش سجل استرجاع للمهارة دي لسه", data: hits.map((h) => ({ at: h.createdAt, nodeId: h.nodeId, objective: h.objective.slice(0, 80), reason: h.reason })) }
+    },
+  },
+  {
+    name: "inspect_skill_trust",
+    description: "درجة ثقة مهارة + تفصيل فحوصاتها التسعة. args: kind, key",
+    gate: "ready",
+    run: async (args) => {
+      const { AGENT_TOOLS } = await import("@/lib/agent/tools")
+      const validate = AGENT_TOOLS.find((t) => t.name === "validate_skill")
+      if (!validate) return { ok: false, note: "أداة الفحص غير متاحة" }
+      return validate.run(args)
+    },
+  },
+  {
+    name: "get_skill_outcomes",
+    description: "نتايج مهارة/مهارات من الذاكرة: معدل نجاح، جودة، زمن (حلقة التعلم 43.11). args: workspace_id, key?",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const wsId = String(args.workspace_id ?? "")
+      const key = args.key ? String(args.key) : undefined
+      const where: Record<string, unknown> = { workspaceId: wsId, ...(key ? { skillKey: key } : {}) }
+      const rows = await dbx.db.skillOutcome.groupBy({
+        by: ["skillKind", "skillKey"],
+        where: where as never,
+        _count: { _all: true },
+        _avg: { quality: true, latencyMs: true },
+        orderBy: { _count: { skillKey: "desc" } },
+        take: 15,
+      }).catch(() => [])
+      if (!rows.length) return { ok: true, note: "مفيش نتايج مسجلة لسه — الحلقة بتتغذى أول ما الخرايط تتنفذ" }
+      return { ok: true, note: rows.slice(0, 5).map((r) => `${r.skillKind}:${r.skillKey.slice(0, 24)} ×${r._count._all}`).join("، "), data: rows.map((r) => ({ kind: r.skillKind, key: r.skillKey, uses: r._count._all, avgQuality: Math.round(r._avg.quality ?? 0), avgLatencyMs: Math.round(r._avg.latencyMs ?? 0) })) }
+    },
+  },
+  {
+    name: "find_skill_for_node",
+    description: "أفضل مهارة واحدة لعقدة بالهدف المحدد (استرجاع مصغّر). args: workspace_id, objective",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const { retrieveSkillsForNode } = await import("@/lib/skills/dsi/retriever")
+      const wsId = String(args.workspace_id ?? "")
+      const objective = String(args.objective ?? "")
+      if (!wsId || objective.length < 5) return { ok: false, note: "workspace_id/objective مفقود" }
+      const r = await retrieveSkillsForNode({ workspaceId: wsId, objective, nodeType: "DISCOVER", maxSkills: 1 })
+      const s = r.selected[0]
+      return { ok: Boolean(s), note: s ? `أفضل مهارة: [${s.kind}] ${s.name} (${s.finalScore}) — ${s.selectionReason}` : "مفيش مهارة عدّت الحد — NO NEED → NO SKILL", data: s ?? null }
+    },
+  },
+  {
+    name: "replace_skill",
+    description: "استبدل مهارة مفعّلة في عقدة بأخرى من المرشحين: سجل الرفض والبديل. args: graph_id, node_id, remove_key, add_key?",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const graphId = String(args.graph_id ?? "")
+      const nodeId = String(args.node_id ?? "")
+      const removeKey = String(args.remove_key ?? "")
+      const addKey = args.add_key ? String(args.add_key) : null
+      const node = await dbx.db.taskGraphNode.findFirst({ where: { graphId, nodeId } })
+      if (!node) return { ok: false, note: "العقدة غير موجودة" }
+      const selected = ((node.selectedSkills as Array<{ key: string }> | null) ?? []).filter((s) => s.key !== removeKey)
+      if (addKey) selected.push({ key: addKey } as never)
+      await dbx.db.taskGraphNode.update({ where: { id: node.id }, data: { selectedSkills: selected as never } })
+      return { ok: true, note: `استبدال مسجل: -${removeKey || "(فاضي)"}${addKey ? ` +${addKey}` : ""}`, data: { selected } }
+    },
+  },
+  {
+    name: "record_skill_outcome",
+    description: "سجّل نتيجة يدوية لمهارة (للتعلم خارج الخرايط): SUCCESS|PARTIAL|FAILURE. args: workspace_id, kind, key, outcome, quality?",
+    gate: "ready",
+    run: async (args) => {
+      const { recordSkillOutcome } = await import("@/lib/skills/dsi/memory")
+      const wsId = String(args.workspace_id ?? "")
+      const kind = String(args.kind ?? "").toUpperCase()
+      const key = String(args.key ?? "")
+      const outcome = String(args.outcome ?? "").toUpperCase()
+      if (!wsId || !key || !["SUCCESS", "PARTIAL", "FAILURE", "UNKNOWN"].includes(outcome)) return { ok: false, note: "متغيرات ناقصة أو outcome غير معروف" }
+      await recordSkillOutcome({ workspaceId: wsId, skillKind: kind as "CORE" | "GITSKILLS" | "CLAWHUB" | "WORKSPACE", skillKey: key, outcome: outcome as "SUCCESS" | "PARTIAL" | "FAILURE" | "UNKNOWN", quality: Number(args.quality ?? 0), notes: "تسجيل يدوي" })
+      return { ok: true, note: `اتسجلت نتيجة ${outcome} لـ${kind}:${key} — الوزن هيتحدّث في المكتبة` }
+    },
+  },
+  {
+    name: "replan_task",
+    description: "أجبر خريطة على إعادة تخطيط: أرجّع العقد الفاشلة PENDING وأضف مسار بديل. args: graph_id",
+    gate: "ready",
+    run: async (args) => {
+      const dbx = await import("@/lib/db")
+      const graphId = String(args.graph_id ?? "")
+      const g = await dbx.db.taskGraph.findUnique({ where: { id: graphId } })
+      if (!g) return { ok: false, note: "خريطة غير موجودة" }
+      const revived = await dbx.db.taskGraphNode.updateMany({ where: { graphId, status: "FAILED" }, data: { status: "PENDING" } })
+      if (g.status !== "ACTIVE") await dbx.db.taskGraph.update({ where: { id: graphId }, data: { status: "ACTIVE" } })
+      return { ok: true, note: `إعادة تخطيط: ${revived.count} عقدة فاشلة رجعت PENDING والخريطة ${g.status !== "ACTIVE" ? "رجعت ACTIVE" : "مازالت ACTIVE"}` }
+    },
+  },
+  {
+    name: "recover_task",
+    description: "استئناف تنفيذ خريطة متوقفة (شريحة جديدة بميزانية قصيرة). args: graph_id",
+    gate: "ready",
+    run: async (args) => {
+      const { runGraphSlice } = await import("@/lib/thinking/engine")
+      const graphId = String(args.graph_id ?? "")
+      const slice = await runGraphSlice(graphId, { budgetMs: 45_000, maxNodes: 4 })
+      return { ok: slice.steps.length > 0, note: slice.steps.length ? `اتنفذت ${slice.steps.length} عقدة — الحالة ${slice.status}: ${slice.steps.map((s) => `${s.type}=${s.outcome}`).join("، ")}` : `مفيش عقد قابلة للتنفيذ — الحالة ${slice.status}`, data: slice }
+    },
+  },
 ]
 
 export function toolStatus() {

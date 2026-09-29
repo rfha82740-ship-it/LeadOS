@@ -774,6 +774,17 @@ export async function processTick(
     }
   } catch { /* حصاد المكتبة best-effort — ميفشّلش النبضة */ }
 
+  // 0.8) استئناف خرايط التفكير النشطة (Dynamic Skill Intelligence — 43.17):
+  // خريطة اتحطت نص تنفيذ (serverless اتقتل/انتهى budget) → شريحة استئناف صغيرة
+  // عقدتين لكل نبضة بميزانية 25s — مفيش ضغط على باقي النبضة، والخرايط بتكمل لوحدها.
+  try {
+    const { resumeActiveGraphs } = await import("@/lib/thinking/engine")
+    const resumed = await resumeActiveGraphs(1, 25_000)
+    for (const r of resumed) {
+      if (r.resumed) details.push(`TASK_GRAPH resume: ${r.note}`)
+    }
+  } catch { /* استئناف best-effort — ميفشّلش النبضة */ }
+
   // 1) Scheduler: enqueue due rules (every tick checks; jobs are cheap and idempotent)
   const rules = await db.searchRule.findMany({ where: { enabled: true }, orderBy: { priority: "desc" } })
   let scheduledRules = 0

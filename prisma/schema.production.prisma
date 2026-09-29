@@ -506,6 +506,7 @@ model Workspace {
   tacticStats        TacticStat[]
   skillStats         SkillStat[]
   skillLessons       SkillLesson[]
+  taskGraphs         TaskGraph[]
 }
 
 // ═══ عقل المهارات — الإحصاء والتعلم (doc §3) ═══
@@ -561,6 +562,10 @@ model GitSkill {
   body        String   @default("") @db.Text // أول ~2500 حرف من توجيهات المهارة
   tags        String   @default("") // كلمات مفتاحية مفصولة بفواصل (منصات + تخصصات)
   relevance   Float    @default(0) // درجة الصلة بالصيد عند الحصاد
+  contentHash String   @default("") // بصمة المحتوى — تتغير = إعادة فحص الثقة (43.18)
+  trustScore  Int      @default(50) // 0-100 من بوابة الثقة (43.8)
+  status      String   @default("ACTIVE") // ACTIVE | REJECTED | BLOCKED | STALE
+  license     String   @default("") // رخصة المهارة لو معروفة
   useCount    Int      @default(0) // مرات الدخول في برومبتات الـAI
   leadCount   Int      @default(0) // ليدز نزلت وأنا حاضر في السياق
   weight      Float    @default(1.0)
@@ -570,6 +575,7 @@ model GitSkill {
 
   @@unique([repo, path])
   @@index([relevance])
+  @@index([status])
 }
 
 // HubSkill: مهارة منسّقة من مكتبة ClawHub العالمية (clawhub.ai — سجل OpenClaw الرسمي)
@@ -588,6 +594,10 @@ model HubSkill {
   stars       Int       @default(0)
   downloads   Int       @default(0)
   sourceUrl   String    @default("") // رابط المهارة على clawhub.ai
+  contentHash String    @default("") // بصمة المحتوى — تتغير = إعادة فحص الثقة (43.18)
+  trustScore  Int       @default(50) // 0-100 من بوابة الثقة (43.8)
+  status      String    @default("ACTIVE") // ACTIVE | REJECTED | BLOCKED | STALE
+  license     String    @default("") // رخصة المهارة لو معروفة
   useCount    Int       @default(0) // مرات الدخول في برومبتات الـAI
   leadCount   Int       @default(0) // ليدز نزلت وأنا حاضر في السياق
   weight      Float     @default(1.0)
@@ -1661,4 +1671,118 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, sentAt])
+}
+
+// ═══ Dynamic Skill Intelligence Layer — طبقة الذكاء الديناميكية (مواصفة 43) ═══
+// TaskGraph: خريطة تفكير ديناميكية تُبنى لكل مهمة — مش خطة ثابتة. العقد تتنفذ بالترتيب
+// القانوني (dependencies + priority) وتتأكد بالأدلة، وفشل أي مسار = إعادة تخطيط مش موت.
+model TaskGraph {
+  id          String    @id @default(cuid())
+  workspaceId String
+  goal        String    @db.Text
+  status      String    @default("ACTIVE") // ACTIVE | COMPLETED | FAILED | STOPPED
+  trigger     String    @default("AGENT") // AGENT | TOOL | TICK | API | CHAT
+  sourceRunId String?
+  assumptions Json?
+  facts       Json?
+  finalResult Json?
+  stats       Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nodes     TaskGraphNode[]
+  events    TaskGraphEvent[]
+
+  @@index([workspaceId, status])
+  @@index([updatedAt])
+}
+
+// TaskGraphNode: عقدة واحدة بعقد التنفيذ الكامل (43.4) — الحواف جوه dependencies/nextRoutes.
+model TaskGraphNode {
+  id                   String    @id @default(cuid())
+  graphId              String
+  graph                TaskGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  nodeId               String
+  parentNodeId         String?
+  type                 String
+  objective            String    @db.Text
+  inputRequirements    Json?
+  requiredFacts        Json?
+  requiredSkills       Json?
+  candidateSkills      Json?
+  selectedSkills       Json?
+  tools                Json?
+  dependencies         Json?
+  priority             Int       @default(5)
+  costEstimate         Int       @default(1)
+  riskEstimate         Int       @default(1)
+  expectedOutput       String?
+  verificationCriteria Json?
+  policyGate           String    @default("STANDARD")
+  accountRequirement   Json?
+  sourceRequirement    Json?
+  status               String    @default("PENDING")
+  attempts             Int       @default(0)
+  outcome              String?
+  outcomeData          Json?
+  failureReason        String?
+  nextRoutes           Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([graphId, nodeId])
+  @@index([graphId, status])
+}
+
+// TaskGraphEvent: سجل القرارات والأدلة وإعادة التخطيط والبوابات — أسئلة الوعي (43.16).
+model TaskGraphEvent {
+  id        String    @id @default(cuid())
+  graphId   String
+  graph     TaskGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  nodeId    String?
+  type      String
+  message   String    @db.Text
+  payload   Json?
+  createdAt DateTime  @default(now())
+
+  @@index([graphId, createdAt])
+}
+
+// SkillRetrieval: سجل كل عملية استرجاع — المرشحون بدرجاتهم والمختارون بأسبابهم والمرفوضون بسببهم.
+model SkillRetrieval {
+  id          String   @id @default(cuid())
+  workspaceId String
+  graphId     String?
+  nodeId      String?
+  taskId      String?
+  objective   String   @default("") @db.Text
+  parsed      Json?
+  candidates  Json?
+  selected    Json?
+  rejected    Json?
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([graphId])
+}
+
+// SkillOutcome: نتيجة تنفيذ مهارة في عقدة — وقود حلقة التعلم (43.11/43.27).
+model SkillOutcome {
+  id          String   @id @default(cuid())
+  workspaceId String
+  skillKind   String
+  skillKey    String
+  graphId     String?
+  nodeId      String?
+  taskId      String?
+  outcome     String
+  quality     Float    @default(0)
+  latencyMs   Int      @default(0)
+  notes       String   @default("") @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([skillKind, skillKey])
+  @@index([workspaceId, createdAt])
 }

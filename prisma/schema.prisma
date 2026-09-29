@@ -80,6 +80,7 @@ model Workspace {
   evolutionProposals EvolutionProposal[]
   skillStats      SkillStat[]
   skillLessons    SkillLesson[]
+  taskGraphs      TaskGraph[]
 }
 
 // ═══ عقل المهارات — الإحصاء والتعلم (doc §3) ═══
@@ -136,6 +137,10 @@ model GitSkill {
   body        String   @default("") // أول ~2500 حرف من توجيهات المهارة
   tags        String   @default("") // كلمات مفتاحية مفصولة بفواصل (منصات + تخصصات)
   relevance   Float    @default(0) // درجة الصلة بالصيد عند الحصاد
+  contentHash String   @default("") // بصمة المحتوى — تتغير = إعادة فحص الثقة (43.18)
+  trustScore  Int      @default(50) // 0-100 من بوابة الثقة (43.8)
+  status      String   @default("ACTIVE") // ACTIVE | REJECTED | BLOCKED | STALE
+  license     String   @default("") // رخصة المهارة لو معروفة
   useCount    Int      @default(0) // مرات الدخول في برومبتات الـAI
   leadCount   Int      @default(0) // ليدز نزلت وأنا حاضر في السياق
   weight      Float    @default(1.0)
@@ -145,6 +150,7 @@ model GitSkill {
 
   @@unique([repo, path])
   @@index([relevance])
+  @@index([status])
 }
 
 // HubSkill: مهارة منسّقة من مكتبة ClawHub العالمية (clawhub.ai — سجل OpenClaw الرسمي)
@@ -163,6 +169,10 @@ model HubSkill {
   stars       Int       @default(0)
   downloads   Int       @default(0)
   sourceUrl   String    @default("") // رابط المهارة على clawhub.ai
+  contentHash String    @default("") // بصمة المحتوى — تتغير = إعادة فحص الثقة (43.18)
+  trustScore  Int       @default(50) // 0-100 من بوابة الثقة (43.8)
+  status      String    @default("ACTIVE") // ACTIVE | REJECTED | BLOCKED | STALE
+  license     String    @default("") // رخصة المهارة لو معروفة
   useCount    Int       @default(0) // مرات الدخول في برومبتات الـAI
   leadCount   Int       @default(0) // ليدز نزلت وأنا حاضر في السياق
   weight      Float     @default(1.0)
@@ -1376,4 +1386,122 @@ model PlatformAccount {
 
   @@unique([workspaceId, platform, handle])
   @@index([workspaceId, platform, status])
+}
+
+// ═══ Dynamic Skill Intelligence Layer — طبقة الذكاء الديناميكية (مواصفة 43) ═══
+// TaskGraph: خريطة تفكير ديناميكية تُبنى لكل مهمة — مش خطة ثابتة. العقد تتنفذ بالترتيب
+// القانوني (dependencies + priority) وتتأكد بالأدلة، وفشل أي مسار = إعادة تخطيط مش موت.
+model TaskGraph {
+  id          String    @id @default(cuid())
+  workspaceId String
+  goal        String // الهدف الأصلي للمهمة
+  status      String    @default("ACTIVE") // ACTIVE | COMPLETED | FAILED | STOPPED
+  trigger     String    @default("AGENT") // AGENT | TOOL | TICK | API | CHAT
+  sourceRunId String? // AgentRun المرتبط (لو جاية من الأيجنت)
+  assumptions Json? // افتراضات البناء المسجلة عند الإنشاء
+  facts       Json? // الحقايق الحالية (نتايج العقد المنفذة) — أساس اختيار الـroute
+  finalResult Json? // النتيجة النهائية + ملخص الوعي (43.16)
+  stats       Json? // عدادات: عقد منفذة/فاشلة/إعادة تخطيط/مهارات مستخدمة
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nodes     TaskGraphNode[]
+  events    TaskGraphEvent[]
+
+  @@index([workspaceId, status])
+  @@index([updatedAt])
+}
+
+// TaskGraphNode: عقدة واحدة بعقد التنفيذ الكامل (43.4) — الحواف جوه dependencies
+// (معرفات العقد الواردة) و nextRoutes (مخرجات محتملة) — جدول حواف منفصل مش محتاج.
+model TaskGraphNode {
+  id                   String    @id @default(cuid())
+  graphId              String
+  graph                TaskGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  nodeId               String // N1, N2...
+  parentNodeId         String?
+  type                 String // OBSERVE | ANALYZE | PLAN | RETRIEVE_SKILLS | DISCOVER | VERIFY | ENRICH | QUALIFY | SCORE | RESEARCH | DECIDE | CONTACT | FOLLOWUP | LEARN | RECOVER | HUMAN_REVIEW | END
+  objective            String // «إيه المطلوب من العقدة دي بالظبط»
+  inputRequirements    Json? // مدخلات لازم تكون جاهزة
+  requiredFacts        Json? // حقايق لازم تكون متوفرة قبل التنفيذ
+  requiredSkills       Json? // القدرات المطلوبة نظريًا
+  candidateSkills      Json? // مرشحو الاسترجاع (المرحلتان 2-4)
+  selectedSkills       Json? // المختارون فعليًا مع provenance + selectionReason (43.10)
+  tools                Json? // أدوات التنفيذ المسماة
+  dependencies         Json? // [nodeId...] = الحواف الواردة
+  priority             Int       @default(5)
+  costEstimate         Int       @default(1) // 1-5
+  riskEstimate         Int       @default(1) // 1-5
+  expectedOutput       String?
+  verificationCriteria Json? // معايير إثبات النجاح (43.5 VERIFY)
+  policyGate           String    @default("STANDARD") // STANDARD | STRICT | HUMAN_APPROVAL
+  accountRequirement   Json? // متطلبات حساب/جلسة
+  sourceRequirement    Json? // متطلبات مصدر/منصة
+  status               String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED | BLOCKED | SKIPPED
+  attempts             Int       @default(0)
+  outcome              String? // SUCCESS | INSUFFICIENT_EVIDENCE | MISSING_CAPABILITY | SOURCE_FAILURE | ACCOUNT_FAILURE | AUTH_REQUIRED | POLICY_BLOCK | PARTIAL
+  outcomeData          Json? // الأدلة الفعلية (عدّادات/معرفات)
+  failureReason        String?
+  nextRoutes           Json? // مسارات محتملة بعد النتيجة
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([graphId, nodeId])
+  @@index([graphId, status])
+}
+
+// TaskGraphEvent: سجل القرارات والأدلة وإعادة التخطيط والبوابات — كل «ليه عملت كده»
+// بيتسجل هنا عشان الـAI يقدر يجاوب أسئلة الوعي (43.16) في أي لحظة.
+model TaskGraphEvent {
+  id        String    @id @default(cuid())
+  graphId   String
+  graph     TaskGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  nodeId    String?
+  type      String // DECISION | EVIDENCE | REPLAN | GATE | SKILL_SELECTED | SKILL_OUTCOME | ERROR | SUMMARY
+  message   String
+  payload   Json?
+  createdAt DateTime  @default(now())
+
+  @@index([graphId, createdAt])
+}
+
+// SkillRetrieval: سجل كل عملية استرجاع مهارات من المكتبات — المرشحون بدرجاتهم
+// والمختارون بأسبابهم والمرفوضون بسببهم (43.7 المراحل الخمس + منشأ 43.10).
+model SkillRetrieval {
+  id          String   @id @default(cuid())
+  workspaceId String
+  graphId     String?
+  nodeId      String?
+  taskId      String?
+  objective   String   @default("") // هدف العقدة المطلوب الاسترجاع لعشانuه
+  parsed      Json? // المرحلة 1: domain/action/platform/constraints...
+  candidates  Json? // المراحل 2-4: المرشحون مع الدرجات المكونية
+  selected    Json? // المرحلة 5: المختارون مع selectionReason
+  rejected    Json? // المرفوضون بسببهم (ثقة/صلة/تكرار/سياسة)
+  reason      String? // ملخص سبب الاختيار
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([graphId])
+}
+
+// SkillOutcome: نتيجة تنفيذ مهارة في عقدة — وقود حلقة التعلم (43.11/43.27):
+// المهارة اللي بتنجح بترفع utility خاص بيها والفاشلة بتنزل في الترتيب الجاي.
+model SkillOutcome {
+  id          String   @id @default(cuid())
+  workspaceId String
+  skillKind   String // CORE | GITSKILLS | CLAWHUB | WORKSPACE
+  skillKey    String // معرف فريد: اسم/مسار المهارة
+  graphId     String?
+  nodeId      String?
+  taskId      String?
+  outcome     String // SUCCESS | PARTIAL | FAILURE | UNKNOWN
+  quality     Float    @default(0) // 0-100
+  latencyMs   Int      @default(0)
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([skillKind, skillKey])
+  @@index([workspaceId, createdAt])
 }

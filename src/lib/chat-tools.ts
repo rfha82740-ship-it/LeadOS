@@ -30,6 +30,7 @@ export const AI_TOOLS: ToolDef[] = [
   { name: "search_agent_memory", description: "فحص ذاكرة البحث قبل الويب: استعلامات سابقة مشابهة وجودتها وأفضل نتايجها", parameters: { query: "string" } },
   { name: "analyze_image", description: "حلل صورة أو سكرين شوت بمحرك الرؤية: استخراج شعارات/أرقام/عروض/حالة محل. image = رابط http(s) أو data URL أو latest لآخر سكرين شوت من المتصفح الخفي", parameters: { image: "string", question: "string" } },
   { name: "translate_text", description: "ترجم نص لأي لغة بمحرك Riva المخصص (مفيد لرسائل العملاء الأجانب): text, target_lang مثل English", parameters: { text: "string", target_lang: "string" } },
+  { name: "task_graph", description: "خريطة تفكير ديناميكية (Dynamic Skill Intelligence): أنشئ خريطة تنفيذ لمهمة وابنِ عقد مرتبطة بمهارات من المكتبات العالمية، أو افحص خريطة قائمة بإجابات الوعي. action='create' + objective، أو action='inspect' + graph_id", parameters: { action: "string", objective: "string", graph_id: "string" } },
 ]
 
 export interface ToolResult {
@@ -230,6 +231,30 @@ export async function executeTool(workspaceId: string, name: string, args: Recor
         const result = await aiTranslate(text, target, { workspaceId, runType: "OTHER" })
         if (!result) return { ok: false, summary: "محرك الترجمة مش متاح حاليًا" }
         return { ok: true, summary: `الترجمة لـ${target} جاهزة`, data: { translation: result.text.slice(0, 2000) } }
+      }
+      case "task_graph": {
+        // Dynamic Skill Intelligence — خريطة تفكير ديناميكية من الشات (مواصفة 43)
+        const action = String(args.action ?? "create").toLowerCase()
+        const { runAgentGraph, inspectThinkingGraph } = await import("@/lib/thinking/engine")
+        if (action === "inspect") {
+          const r = await inspectThinkingGraph(String(args.graph_id ?? ""))
+          if (!r) return { ok: false, summary: "مفيش خريطة بالمعرف ده" }
+          const a = r.awareness
+          return {
+            ok: true,
+            summary: `${a.whatAmIDoing} — ${a.evidenceSummary} (تقدم ${a.progress.done}/${a.progress.total}${a.progress.failed ? `، فشل ${a.progress.failed}` : ""})${a.currentSkill ? ` — مهارة شغالة: [${a.currentSkill.kind}] ${a.currentSkill.name}` : ""}`,
+            data: { awareness: a, nodes: r.nodes },
+          }
+        }
+        const objective = String(args.objective ?? "").trim()
+        if (objective.length < 5) return { ok: false, summary: "اكتب هدف واضح للمهمة (5 أحرف على الأقل)" }
+        const r = await runAgentGraph(workspaceId, objective, { trigger: "CHAT", budgetMs: 60_000 })
+        const fr = (r.finalResult ?? {}) as { leads?: number; bestScore?: number }
+        return {
+          ok: true,
+          summary: `خريطة (${r.builtBy === "AI" ? "AI" : "قالب حتمي"}) ${r.status}: ${r.steps.length} عقدة تنفتذت، ${fr.leads ?? 0} ليد، أعلى درجة ${fr.bestScore ?? 0} — معرفها ${r.graphId.slice(0, 8)} (اسألني inspect بأي وقت`,
+          data: { graphId: r.graphId, status: r.status, steps: r.steps.slice(0, 12), finalResult: r.finalResult },
+        }
       }
       default:
         return { ok: false, summary: `أداة غير معروفة: ${name}` }
