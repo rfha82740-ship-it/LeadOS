@@ -6,7 +6,9 @@ LeadOS Browser Farm — 15 shards متوازية على GitHub Actions (Drission
   browser → DrissionPage يفتح بحث الموقع نفسه (wuzzuf/olx/mostaql/yellowpages)
   flare   → FlareSolverr للمواقع المحمية بكلاودفلير (fallback تلقائي لأي وضع)
 الإرسال: /api/ingest/webhook بدفعات صغيرة + retry — نفس عقد المزرعة القديم.
-Run: python3 farm.py --shard 0 --shards 15
+Run: python3 farm.py --shard 0 --shards 15 [--part 0/1]
+--part 0/1 = نص المهام — عمليتين متوازيين جوه نفس الـjob = ضعف المتصفحات الحقيقية (30 بدل 15)
+بدون تكرار شغل: كل part بياخد مصادر متبادلة (i % 2) والسيرفر بيمسح المكرر برضه
 """
 from __future__ import annotations
 
@@ -139,11 +141,19 @@ def ddg_search(query: str, limit: int = 12) -> list:
     return results[:limit]
 
 
-def serp_shard(platform: str) -> list:
+def _half(seq, part: int) -> list:
+    """تقسيم مصادر الشغل نصين للـparts المتوازية — part<0 = الكل (سلوك قديم)"""
+    seq = list(seq)
+    if part < 0:
+        return seq
+    return [x for i, x in enumerate(seq) if i % 2 == part]
+
+
+def serp_shard(platform: str, part: int = -1) -> list:
     domains = PLATFORM_DOMAINS.get(platform, [])
     items = []
     flare_first = bool(os.environ.get("FLARESOLVERR_URL"))
-    for q in QUERIES.get(platform, [])[:4]:
+    for q in _half(QUERIES.get(platform, [])[:4], part):
         if flare_first:
             raw = flare_get(f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}")
             hits = []
@@ -169,9 +179,9 @@ def serp_shard(platform: str) -> list:
 
 
 # ---------------------------------------------------------------- http shards
-def telegram_shard() -> list:
+def telegram_shard(part: int = -1) -> list:
     items = []
-    for ch in TELEGRAM_CHANNELS:
+    for ch in _half(TELEGRAM_CHANNELS, part):
         for attempt in (0, 1):
             try:
                 r = requests.get(f"https://t.me/s/{ch}", headers={"User-Agent": UA}, timeout=20)
@@ -206,9 +216,9 @@ def telegram_shard() -> list:
     return items
 
 
-def reddit_shard() -> list:
+def reddit_shard(part: int = -1) -> list:
     items = []
-    for sub in REDDIT_SUBS:
+    for sub in _half(REDDIT_SUBS, part):
         try:
             r = requests.get(f"https://www.reddit.com/r/{sub}/new.json?limit=40",
                              headers={"User-Agent": "LeadOS-Farm/1.0 (Egypt lead discovery)"},
@@ -246,7 +256,7 @@ BROWSER_URLS = {
 }
 
 
-def browser_shard(platform: str) -> list:
+def browser_shard(platform: str, part: int = -1) -> list:
     from DrissionPage import ChromiumPage, ChromiumOptions
 
     chrome = None
@@ -270,8 +280,16 @@ def browser_shard(platform: str) -> list:
         print(f"  [browser] فشل تشغيل المتصفح: {e} — أرجع لـ FlareSolverr")
         return flare_shard(platform)
 
-    for pattern in BROWSER_URLS.get(platform, []):
-        for kw in QUERIES.get(platform, [])[:4]:
+    pats_all = BROWSER_URLS.get(platform, [])
+    if part >= 0 and len(pats_all) <= 1:
+        # منصة بنمط واحد: النمط يتكرر للـparts كلها والتقسيم على الكلمات — الاتنين يفتحوا متصفح فعلًا
+        patterns = pats_all
+        kws_part = part
+    else:
+        patterns = _half(pats_all, part)
+        kws_part = -1  # كل part بياخد أنماطه بكلماتها كاملة — صفر ضياع تغطية
+    for pattern in patterns:
+        for kw in _half(QUERIES.get(platform, [])[:4], kws_part):
             url = pattern.format(kw=kw.replace(" ", "-") if "olx" in pattern else kw.replace(" ", "%20"))
             try:
                 page.get(url, timeout=35)
@@ -311,9 +329,9 @@ def browser_shard(platform: str) -> list:
     return items
 
 
-def flare_shard(platform: str) -> list:
+def flare_shard(platform: str, part: int = -1) -> list:
     items = []
-    for q in QUERIES.get(platform, [])[:3]:
+    for q in _half(QUERIES.get(platform, [])[:3], part):
         raw = flare_get(f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}")
         if not raw:
             continue
@@ -336,6 +354,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--shards", type=int, default=15)
+    ap.add_argument("--part", type=int, default=-1,
+                    help="0/1 = نص المهام — عمليتين متوازيين جوه نفس الـjob")
     args = ap.parse_args()
 
     base = os.environ.get("LEADOS_BASE_URL", "").rstrip("/")
@@ -357,19 +377,19 @@ def main() -> int:
         return 2
 
     if shard_id == "telegram":
-        items = telegram_shard()
+        items = telegram_shard(args.part)
     elif shard_id == "reddit":
-        items = reddit_shard()
+        items = reddit_shard(args.part)
     elif platform in BROWSER_URLS:
-        items = browser_shard(platform)
+        items = browser_shard(platform, args.part)
         if not items:
             print("  المتصفح رجّع صفر — جرب FlareSolverr")
-            items = flare_shard(platform)
+            items = flare_shard(platform, args.part)
     else:
-        items = serp_shard(platform)
+        items = serp_shard(platform, args.part)
         if not items:
             print("  serp رجّع صفر — جرب FlareSolverr")
-            items = flare_shard(platform)
+            items = flare_shard(platform, args.part)
 
     items = list({i["externalId"]: i for i in items}.values())
     print(f"📦 {platform}: {len(items)} عنصر جاهز للإرسال")

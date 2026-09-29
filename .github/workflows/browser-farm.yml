@@ -58,7 +58,7 @@ jobs:
           playwright install chromium --with-deps > /dev/null 2>&1 || playwright install chromium
           sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core > /dev/null
 
-      - name: تشغيل الـshard — sweeps متكررة ~45 دقيقة
+      - name: تشغيل الـshard — متصفحين متوازيين × sweeps متكررة ~45 دقيقة
         run: |
           WANT="${{ inputs.shard }}"
           MINE="${{ matrix.shard }}"
@@ -69,11 +69,14 @@ jobs:
           PASS=0
           while [ $SECONDS -lt 2640 ]; do
             PASS=$((PASS+1))
-            echo "🚜 Sweep #$PASS — shard $MINE ($(date -u +%H:%M) UTC)"
-            python worker/farm.py --shard $MINE --shards 15 || echo "⚠️ sweep $PASS فيه أخطاء جزئية — نكمل"
-            sleep 180
+            echo "🚜 Sweep #$PASS — shard $MINE ×2 متصفحين متوازيين ($(date -u +%H:%M) UTC)"
+            python worker/farm.py --shard $MINE --shards 15 --part 0 & P0=$!
+            python worker/farm.py --shard $MINE --shards 15 --part 1 & P1=$!
+            wait $P0 || echo "⚠️ part0 فيه أخطاء جزئية"
+            wait $P1 || echo "⚠️ part1 فيه أخطاء جزئية"
+            sleep 120
           done
-          echo "✅ shard $MINE أنهى $PASS sweeps في $((SECONDS/60)) دقيقة"
+          echo "✅ shard $MINE أنهى $PASS sweeps ×2 متصفح في $((SECONDS/60)) دقيقة"
 
       # ⚠️ السلسلة اتنقلت لـjob مستقل تحت — كانت جوه الـmatrix فكل shard من الـ15
       #    كان بيقذف beat_farm لوحده = 15 dispatch لكل جيل = عاصفة إلغاء (concurrency)
