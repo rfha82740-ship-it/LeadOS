@@ -91,3 +91,4 @@ scripts/zenrows-*.html
 # Facebook cookies — nunca في git
 .fb-cookies.json
 .fb-cookies.txt
+.secrets/
