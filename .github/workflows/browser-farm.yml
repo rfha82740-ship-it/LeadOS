@@ -75,8 +75,18 @@ jobs:
           done
           echo "✅ shard $MINE أنهى $PASS sweeps في $((SECONDS/60)) دقيقة"
 
-      - name: 🔁 سلسلة دائمة — توليد الدفعة التالية
-        if: always()
+      # ⚠️ السلسلة اتنقلت لـjob مستقل تحت — كانت جوه الـmatrix فكل shard من الـ15
+      #    كان بيقذف beat_farm لوحده = 15 dispatch لكل جيل = عاصفة إلغاء (concurrency)
+
+  # 🔁 السلسلة الدائمة — dispatch واحد بس لكل جيل، بعد كل الـshards (نجاح أو فشل)
+  chain:
+    needs: [farm]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: توليد الدفعة التالية
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

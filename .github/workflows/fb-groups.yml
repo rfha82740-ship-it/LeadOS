@@ -1,0 +1,73 @@
+# LeadOS FB Groups — مسح جروبات فيسبوك 24/7 على GitHub Actions (بدون أي جهاز محلي)
+# نفس كود الإنتاج المثبت: scanDueGroups (fetch بكوكيز جلسة + UA سطح مكتب) + تحويل تلقائي
+# للبوستات المؤهلة (score>=75) → عملاء في اللوحة.
+# دائم: كل تشغيلة بتشتغل ~50 دقيقة بدورات كل 15 دقيقة، وفي الآخر job السلسلة يولّد اللي بعدها.
+# الفرامل: ملف .github/STOP في الريبو = وقف السلسلة كلها.
+name: LeadOS FB Groups
+
+on:
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [beat_fbgroups]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: leados-fbgroups
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    env:
+      FACEBOOK_SESSION_COOKIE: ${{ secrets.FACEBOOK_SESSION_COOKIE }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TZ: Africa/Cairo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: تثبيت الاعتماديات + عميل Prisma الإنتاجي
+        run: |
+          bun install --frozen-lockfile || bun install
+          bunx prisma generate --schema=prisma/schema.production.prisma
+
+      - name: مسح جروبات — دورات متكررة ~45 دقيقة
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 STOP موجودة — مفيش مسح"; exit 0; fi
+          PASS=0
+          while [ $SECONDS -lt 2640 ]; do
+            PASS=$((PASS+1))
+            echo "🔍 دورة #$PASS — $(date -u +%H:%M) UTC"
+            bunx tsx scripts/fb-scan-local.ts 5 || echo "⚠️ دورة فيها أخطاء جزئية — نكمل"
+            if [ -f .github/STOP ]; then echo "🛑 STOP ظهرت أثناء التشغيل"; exit 0; fi
+            sleep 900   # 15 دقيقة بين الدورات — إيقاع محترم لحساب فيسبوك
+          done
+          echo "✅ انتهت $PASS دورات مسح في $((SECONDS/60)) دقيقة"
+
+  # 🔁 السلسلة الدائمة — dispatch واحد بس لكل جيل
+  chain:
+    needs: [scan]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: توليد الدفعة التالية
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — السلسلة واقفة (احذف الملف لاستئناف الدائم)"; exit 0; fi
+          sleep 30
+          code=$(curl -s -o /tmp/beat.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d '{"event_type":"beat_fbgroups"}')
+          echo "beat_fbgroups -> HTTP $code (204 = الدفعة التالية انطلقت)"
