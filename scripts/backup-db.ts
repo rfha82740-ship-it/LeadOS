@@ -10,7 +10,7 @@
 // Never throws — backup failure must not block the server.
 
 import { Database } from "bun:sqlite"
-import { mkdirSync, readdirSync, statSync, unlinkSync, copyFileSync, existsSync, writeFileSync } from "fs"
+import { mkdirSync, readdirSync, statSync, unlinkSync, copyFileSync, existsSync, writeFileSync, readFileSync } from "fs"
 import { join } from "path"
 
 const ROOT = "/home/z/my-project"
@@ -79,6 +79,7 @@ try {
     const last = statSync(MARKER).mtimeMs
     if (Date.now() - last < MIN_INTERVAL_MS) {
       log(`skip (${label}): last backup ${Math.round((Date.now() - last) / 60000)} min ago`)
+      runProdPulse()
       process.exit(0)
     }
   }
@@ -173,9 +174,44 @@ try {
     log(commit.exitCode === 0 ? "git snapshot committed" : `git commit skipped (${commit.exitCode})`)
   }, "git snapshot")
 
+  // --- 5) نبضة الإنتاج (production tick) — اللوب الخارجي بيلدع السكربت ده كل 30 دقيقة،
+  // فبنمدّده 30 دقيقة إضافية بضرب tick كل 10 دقايق — نبضة مستمرة من عملية مش بيتقتل
+  // (مدير عمليات الـworkspace بيقتل اللوبات اللي بيتفرخ من الجلسات — ده من البوت فمحمي)
+  runProdPulse()
+
   writeFileSync(MARKER, new Date().toISOString())
   log(`done (${label})`)
 } catch (e) {
   log(`FATAL (non-blocking): ${e}`)
+}
+
+/** نبضة الإنتاج: 4 ticks متباعدة 10 دقايق — بتشتغل في كل استدعاء (باك أب أو skip) */
+function runProdPulse(): void {
+  if (label !== "scheduled") return
+  try {
+    const tokensPath = join(ROOT, "scripts", "deploy", ".tokens")
+    const secret =
+      existsSync(tokensPath)
+        ? readFileSync(tokensPath, "utf-8").split("\n").find((l) => l.startsWith("CRON_SECRET_ALT="))?.split("=").slice(1).join("=").trim().replace(/^"|"$/g, "")
+        : ""
+    if (!secret) return
+    const SAB = new Int32Array(new SharedArrayBuffer(4))
+    const sleepSync = (ms: number) => Atomics.wait(SAB, 0, 0, ms)
+    for (let i = 0; i < 4; i++) {
+      if (i > 0) sleepSync(600000) // 10 دقايق انتظار
+      try {
+        const pulse = Bun.spawnSync(
+          ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "110", "-X", "POST",
+           `https://leados-v2.vercel.app/api/cron/tick?max=3&secret=${secret}`],
+          { stdout: "pipe", stderr: "pipe" },
+        )
+        log(`pulse -> ${pulse.stdout.toString().trim() || "timeout"}`)
+      } catch (pe) {
+        log(`pulse fail (non-blocking): ${String(pe).slice(0, 60)}`)
+      }
+    }
+  } catch (pe) {
+    log(`pulse setup fail (non-blocking): ${String(pe).slice(0, 60)}`)
+  }
 }
 process.exit(0)
