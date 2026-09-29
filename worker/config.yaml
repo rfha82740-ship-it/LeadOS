@@ -7,8 +7,8 @@
 leados:
   base_url: "http://localhost:3000"     # على Railway/VPS حط رابط تطبيقك على Vercel
   api_key: ""                            # نفس قيمة INGEST_API_KEY في .env بتاع LeadOS
-  timeout_seconds: 30
-  batch_size: 40                         # إرسال النتايج على دفعات صغيرة مش دفعة واحدة
+  timeout_seconds: 240
+  batch_size: 8                         # إرسال النتايج على دفعات صغيرة مش دفعة واحدة
 
 # --- الوضع العام ---
 worker:
