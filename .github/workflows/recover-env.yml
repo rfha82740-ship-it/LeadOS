@@ -40,7 +40,15 @@ jobs:
           AwIDAQAB
           -----END PUBLIC KEY-----
           PUBKEY
-          openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -in ./secret.env -out /tmp/secret.enc
+          HEXKEY=$(openssl rand -hex 32)
+          HEXIV=$(openssl rand -hex 16)
+          openssl enc -aes-256-ctr -K "$HEXKEY" -iv "$HEXIV" -in ./secret.env -out /tmp/secret.enc
+          printf "%s:%s" "$HEXKEY" "$HEXIV" > /tmp/keymaterial
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -in /tmp/keymaterial -out /tmp/key.enc
+          echo "ENC_KEY_START"
+          base64 -w0 /tmp/key.enc
+          echo ""
+          echo "ENC_KEY_END"
           echo "ENC_B64_START"
           base64 -w0 /tmp/secret.enc
           echo ""
