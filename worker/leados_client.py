@@ -11,7 +11,7 @@ import requests
 
 
 class LeadOSClient:
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30, batch_size: int = 40):
+    def __init__(self, base_url: str, api_key: str, timeout: int = 240, batch_size: int = 8):
         self.endpoint = base_url.rstrip("/") + "/api/ingest/webhook"
         self.api_key = api_key
         self.timeout = timeout

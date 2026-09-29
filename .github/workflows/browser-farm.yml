@@ -1,0 +1,62 @@
+# LeadOS Browser Farm — 15 متصفح متوازي على Actions المجاني (ريبو عام = دقايق بلا سقف)
+# كل shard = منصة كاملة: TELEGRAM/REDDIT (HTTP) + serp DDG + DrissionPage للمواقع المباشرة
+# FlareSolverr service جاهز لأي كلاودفلير. الدفعات صغيرة (8) والـtimeout مرفوع (240s).
+name: LeadOS Browser Farm
+
+on:
+  schedule:
+    - cron: "20 */4 * * *"      # كل 4 ساعات على الدقيقة 20 (بعيد عن adslib :07)
+  workflow_dispatch:
+    inputs:
+      shard:
+        description: "رقم shard محدد (0-14) — فاضي = كل الـ15"
+        required: false
+        default: ""
+
+concurrency:
+  group: leados-farm
+  cancel-in-progress: false
+
+jobs:
+  farm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    services:
+      flaresolverr:
+        image: flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+        env:
+          LOG_LEVEL: info
+    env:
+      LEADOS_BASE_URL: ${{ secrets.LEADOS_BASE_URL }}
+      LEADOS_API_KEY: ${{ secrets.LEADOS_API_KEY }}
+      FLARESOLVERR_URL: http://localhost:8191
+      TZ: Africa/Cairo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: تثبيت الاعتماديات
+        run: |
+          pip install --quiet DrissionPage requests playwright
+          playwright install chromium --with-deps > /dev/null 2>&1 || playwright install chromium
+          sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core > /dev/null
+
+      - name: تشغيل الـshard
+        run: |
+          WANT="${{ inputs.shard }}"
+          MINE="${{ matrix.shard }}"
+          if [ -n "$WANT" ] && [ "$WANT" != "$MINE" ]; then echo "⏭ shard $MINE مش المطلوب ($WANT)"; exit 0; fi
+          CHROME=$(find /home/runner/.cache/ms-playwright -name chrome -path "*chrome-linux*" 2>/dev/null | head -1)
+          export CHROME_PATH="$CHROME"
+          echo "chrome: $CHROME"
+          python worker/farm.py --shard $MINE --shards 15
