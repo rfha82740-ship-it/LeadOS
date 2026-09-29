@@ -1,0 +1,27 @@
+# تحديث JINA_API_KEY على Vercel الإنتاج من GitHub Secret (بدون أي ظهور في اللوج)
+# + إعادة نشر عشان القيمة الجديدة تنفعل (env vars بتقرأ وقت البناء/التشغيل)
+name: Set Jina Key on Vercel
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  set-jina:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: كتابة القيمة الجديدة (rm + add)
+        run: |
+          npx vercel@59 env rm JINA_API_KEY production --yes --token "$VERCEL_TOKEN" || true
+          printf '%s' "${{ secrets.JINA_API_KEY }}" | npx vercel@59 env add JINA_API_KEY production --token "$VERCEL_TOKEN"
+          echo "JINA_API_KEY updated ✓"
+
+      - name: إعادة نشر الإنتاج لتفعيل المفتاح
+        run: |
+          npx vercel@59 deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -5
