@@ -87,3 +87,7 @@ scripts/zenrows-*.html
 *.pid
 *.bundle
 *.tar.gz
+
+# Facebook cookies — nunca في git
+.fb-cookies.json
+.fb-cookies.txt
