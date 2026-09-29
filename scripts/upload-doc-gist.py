@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""رفع وثيقة LeadOS كـGitHub Gist عام — ينتج لينك تحميل يشتغل من أي جهاز."""
+"""رفع وثيقة LeadOS كـGitHub Gist عام — ينتج لينك تحميل يشتغل من أي جهاز.
+الاستخدام: python3 upload-doc-gist.py [مسار الملف] [اسم الملف في الجست]
+"""
 import json
 import sys
 import urllib.request
 from pathlib import Path
 
-DOC = Path("/home/z/my-project/download/LeadOS-System-Documentation.md")
+DOC = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/home/z/my-project/download/LeadOS-System-Documentation.md")
+GIST_NAME = sys.argv[2] if len(sys.argv) > 2 else DOC.name
 TOKEN_FILE = Path("/home/z/my-project/upload/api من جيت هاب.txt")
 
 
@@ -14,9 +17,9 @@ def main() -> int:
     content = DOC.read_text(encoding="utf-8")
 
     payload = {
-        "description": "LeadOS — وثيقة النظام الكاملة (منصة الصيد + كيان زيزو للبيع الذاتي)",
+        "description": "LeadOS — الدليل الشامل المفصل لكل مكونات المشروع (منصة الصيد + كيان زيزو للبيع الذاتي)",
         "public": True,
-        "files": {"LeadOS-System-Documentation.md": {"content": content}},
+        "files": {GIST_NAME: {"content": content}},
     }
 
     req = urllib.request.Request(
@@ -36,7 +39,7 @@ def main() -> int:
 
     gist_id = data.get("id", "?")
     html = data.get("html_url", "?")
-    raw = data.get("files", {}).get("LeadOS-System-Documentation.md", {}).get("raw_url", "?")
+    raw = data.get("files", {}).get(GIST_NAME, {}).get("raw_url", "?")
     print(f"gist_id: {gist_id}")
     print(f"html_url: {html}")
     print(f"raw_url: {raw}")
