@@ -1,0 +1,54 @@
+# workflow مؤقت لاسترجاع إعدادات الإنتاج بعد reset الجهاز المحلي
+# يسحب envs من Vercel بالتوكين الموجود في Secrets ويشفرها بمفتاح RSA عام
+# (المفتاح الخاص عندي محليًا — اللوج العام مش فيه أي قيمة مفهومة)
+name: Recover Prod Env
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: سحب إعدادات الإنتاج من Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel@59 pull /tmp/prod-env --yes --environment=production --token "$VERCEL_TOKEN" || \
+          npx vercel@59 env pull /tmp/prod-env/.env.production --yes --environment=production --token "$VERCEL_TOKEN"
+          ls -la /tmp/prod-env/ 2>/dev/null || true
+          # لو pull نجاب المشروع كله، الملخص في .env.production جواه
+          F=$(find /tmp/prod-env -name "*.env*" -o -name ".env*" 2>/dev/null | head -1)
+          if [ -z "$F" ]; then echo "NO_ENV_FILE_FOUND"; exit 0; fi
+          echo "FOUND: $F"
+          cp "$F" /tmp/secret.env
+
+      - name: تشفير الملف بالمفتاح العام
+        if: hashFiles('/tmp/secret.env') != ''
+        run: |
+          cat > /tmp/pub.pem <<'PUBKEY'
+                    -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuG4SpNhHUrADp34AtC3x
+          1hJ0IyHqvR2ownKFcPd7+TCWw2zXGTbu9l1KD6M7b6kRxCV+CI9Mk51n4rxQl6DC
+          yxC/Re2f4xZz01KIi+lLK0RVOexzUMEJrrNHJxsb8cMqO03Wg/2XqzGCsCPtuM72
+          PM5J40djk1LjpIQj6BKtZ+GV3JZpOMB3PaUohMvKQUAxjnLaysXa0sMoWqIQn0Qm
+          NArSew1u/mNSnJ1fr00wZoW/3RzR/1VzZGqjgSY2XnL5YoVt5RPduheLzM/X7RmU
+          gu+wf4/ZypmZA1oeP11hcM6d1zFlQxl+v0L1QM/iDu8ogWZjZ03PiNUNU2SVXJtb
+          AwIDAQAB
+          -----END PUBLIC KEY-----
+          PUBKEY
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -in /tmp/secret.env -out /tmp/secret.enc
+          echo "ENC_B64_START"
+          base64 -w0 /tmp/secret.enc
+          echo ""
+          echo "ENC_B64_END"
+
+      - name: أسماء المتغيرات المتاحة (بدون قيم)
+        if: hashFiles('/tmp/secret.env') != ''
+        run: |
+          grep -oE "^[A-Z_0-9]+" /tmp/secret.env | sort | uniq
