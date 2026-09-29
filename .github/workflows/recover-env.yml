@@ -30,7 +30,7 @@ jobs:
         run: |
           if [ ! -s ./secret.env ]; then echo "SKIP_NO_FILE"; exit 0; fi
           cat > /tmp/pub.pem <<'PUBKEY'
-                    -----BEGIN PUBLIC KEY-----
+          -----BEGIN PUBLIC KEY-----
           MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuG4SpNhHUrADp34AtC3x
           1hJ0IyHqvR2ownKFcPd7+TCWw2zXGTbu9l1KD6M7b6kRxCV+CI9Mk51n4rxQl6DC
           yxC/Re2f4xZz01KIi+lLK0RVOexzUMEJrrNHJxsb8cMqO03Wg/2XqzGCsCPtuM72
