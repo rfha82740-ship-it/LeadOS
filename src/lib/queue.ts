@@ -753,7 +753,10 @@ export async function processTick(
         if (h.added) details.push(`GIT_SKILLS: ${h.note}`)
       }
     }
-  } catch { /* الحصاد best-effort — ميفشّلش النبضة */ }
+  } catch (err) {
+    // الحصاد best-effort — ميفشّلش النبضة، بس مندفنوش صامت: اللوج على Vercel
+    console.error("[tick] GIT_SKILLS_HARVEST failed:", err instanceof Error ? err.message.slice(0, 160) : err)
+  }
 
   // 0.75) حصاد ClawHub (المكتبة المنسّقة): مرة كل 6 ساعات — نفس منطق 0.7 بالظبط.
   // بحث موجّه في clawhub.ai → SKILL.md بعد بوابة أمان («تعليمات فقط») → مكتبة HubSkill
@@ -772,7 +775,10 @@ export async function processTick(
         if (h.added) details.push(`CLAWHUB: ${h.note}`)
       }
     }
-  } catch { /* حصاد المكتبة best-effort — ميفشّلش النبضة */ }
+  } catch (err) {
+    // حصاد المكتبة best-effort — ميفشّلش النبضة، بس اللوج لازم يظهر (كان بيبلع أخطاء الـenum صامت)
+    console.error("[tick] CLAWHUB_HARVEST failed:", err instanceof Error ? err.message.slice(0, 160) : err)
+  }
 
   // 0.8) استئناف خرايط التفكير النشطة (Dynamic Skill Intelligence — 43.17):
   // خريطة اتحطت نص تنفيذ (serverless اتقتل/انتهى budget) → شريحة استئناف صغيرة

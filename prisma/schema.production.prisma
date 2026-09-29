@@ -391,6 +391,8 @@ enum JobType {
   REACTIVATION
   SOURCE_EVALUATION
   GIT_SKILLS_HARVEST
+  CLAWHUB_HARVEST
+  FB_COMMENT
 }
 
 enum JobStatus {
@@ -1784,5 +1786,20 @@ model SkillOutcome {
   createdAt   DateTime @default(now())
 
   @@index([skillKind, skillKey])
+  @@index([workspaceId, createdAt])
+}
+
+// LeadOS — تصدير الليدز CSV على الاستضافة: الملف بيتخزن هنا بدل القرص المحلي
+// (قرص Vercel م مؤقت/read-only — والتنزيل بيبقى من /api/exports/[token])
+model LeadExport {
+  id          String   @id @default(cuid())
+  workspaceId String
+  token       String   @unique @default(cuid())
+  filename    String
+  csv         String   @db.Text
+  leadCount   Int      @default(0)
+  minScore    Int      @default(0)
+  createdAt   DateTime @default(now())
+
   @@index([workspaceId, createdAt])
 }

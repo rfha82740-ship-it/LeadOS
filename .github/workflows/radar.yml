@@ -1,0 +1,95 @@
+# LeadOS Radar — الرادار اللحظي 24/7 على GitHub Actions (بدون أي جهاز محلي)
+# نفس كود الإنتاج الحرفي: radarCycle() — مسح جروبات فيسبوك فريش (Camoufox stealth)
+# → ليدز لحظية → جدولة تعليقات بشرية → تنفيذ المستحق → نبضة تطور ذاتي.
+# المتصفح المضاد للبصمة بيتشغل جوه الـrunner نفسه (127.0.0.1:9797) — والكوكيز من Secrets.
+# دائم: كل تشغيلة ~50 دقيقة، وفي الآخر السلسلة تولّد اللي بعدها عبر repository_dispatch.
+# الفرامل: ملف .github/STOP في الريبو = وقف السلسلة كلها.
+name: LeadOS Radar
+
+on:
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [beat_radar]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: leados-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    env:
+      FACEBOOK_SESSION_COOKIE: ${{ secrets.FACEBOOK_SESSION_COOKIE }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CAMOUFOX_URL: http://127.0.0.1:9797
+      TZ: Africa/Cairo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: تثبيت الاعتماديات + عميل Prisma الإنتاجي
+        run: |
+          bun install --frozen-lockfile || bun install
+          bunx prisma generate --schema=prisma/schema.production.prisma
+
+      - name: تثبيت Camoufox (متصفح مضاد للبصمة)
+        run: |
+          pip install --quiet "camoufox[geoip]" || pip install --quiet camoufox
+          python3 -m camoufox fetch || python3 scripts/camoufox-direct-install.py
+          echo "✅ Camoufox اتثبت"
+
+      - name: تشغيل خدمة المتصفح على الـrunner
+        run: |
+          nohup python3 scripts/camoufox-service.py > /tmp/camoufox.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -s -m 3 http://127.0.0.1:9797/health > /dev/null 2>&1; then
+              echo "🦊 الخدمة جاهزة (محاولة $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ الخدمة ما قامتش — آخر 40 سطر من اللوج:"
+          tail -40 /tmp/camoufox.log
+          exit 1
+
+      - name: دورات الرادار — ~45 دقيقة (فريش ليدز + تعليقات بشرية)
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 STOP موجودة — مفيش رادار"; exit 0; fi
+          PASS=0
+          while [ $SECONDS -lt 2640 ]; do
+            PASS=$((PASS+1))
+            echo "⚡ نبضة رادار #$PASS — $(date -u +%H:%M) UTC"
+            bunx tsx scripts/radar-pulse.ts 2 || echo "⚠️ نبضة فيها أخطاء جزئية — نكمل"
+            if [ -f .github/STOP ]; then echo "🛑 STOP ظهرت أثناء التشغيل"; exit 0; fi
+            sleep 120   # تنفس بين النبضات — إيقاع محترم لحساب فيسبوك
+          done
+          echo "✅ انتهت $PASS نبضة رادار في $((SECONDS/60)) دقيقة"
+
+  # 🔁 السلسلة الدائمة — dispatch واحد بس لكل جيل
+  chain:
+    needs: [radar]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: توليد الدفعة التالية
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — السلسلة واقفة (احذف الملف لاستئناف الدائم)"; exit 0; fi
+          sleep 30
+          code=$(curl -s -o /tmp/beat.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d '{"event_type":"beat_radar"}')
+          echo "beat_radar -> HTTP $code (204 = الدفعة التالية انطلقت)"

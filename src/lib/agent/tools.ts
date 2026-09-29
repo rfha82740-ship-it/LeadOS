@@ -251,7 +251,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
   {
     name: "export_leads_csv",
-    description: "تصدير ليدز CRM لملف Excel/CSV (اسم/تليفون/موقع/سيتي/سكور/مصدر) محفوظ في مجلد التحميلات",
+    description: "تصدير ليدز CRM لملف Excel/CSV (اسم/تليفون/موقع/سيتي/سكور/مصدر) — بيتخزن على قاعدة البيانات وبيطلع لينك تحميل من الموقع",
     gate: "ready",
     run: async (args) => {
       const wsId = String(args.workspace_id ?? "")
@@ -271,16 +271,18 @@ export const AGENT_TOOLS: AgentTool[] = [
         ])
       }
       const csv = "\uFEFF" + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n")
-      const { mkdir, writeFile } = await import("fs/promises")
-      const path = await import("path")
-      const dir = process.env.EXPORT_DIR ?? path.join(process.cwd(), "download")
-      await mkdir(dir, { recursive: true }).catch(() => undefined)
+      // الاستضافة أولاً: الملف بيتخزن في Neon (قرص Vercel مؤقت — مفيش ملفات محلية في الإنتاج)
       const filename = `leados-export-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}.csv`
-      await writeFile(path.join(dir, filename), csv, "utf8")
+      const exp = await db.leadExport.create({
+        data: { workspaceId: wsId, filename, csv, leadCount: leads.length, minScore },
+      })
+      // لينك مطلق لو بنشتغل على Vercel — وإلا نسبي (تطوير)
+      const base = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""
+      const url = `${base}/api/exports/${exp.token}`
       return {
         ok: true,
-        note: `تم حفظ ${leads.length} ليد في ${filename} (سكور ≥ ${minScore})`,
-        data: { filename, path: `${dir}/${filename}`, count: leads.length },
+        note: `تم تجهيز ${leads.length} ليد (سكور ≥ ${minScore}) — لينك التحميل: ${url}`,
+        data: { filename, url, token: exp.token, count: leads.length },
       }
     },
   },

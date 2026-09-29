@@ -1505,3 +1505,17 @@ model SkillOutcome {
   @@index([skillKind, skillKey])
   @@index([workspaceId, createdAt])
 }
+
+// LeadOS — تصدير الليدز CSV (تخزين قاعدي بدل الملفات المحلية)
+model LeadExport {
+  id          String   @id @default(cuid())
+  workspaceId String
+  token       String   @unique @default(cuid())
+  filename    String
+  csv         String
+  leadCount   Int      @default(0)
+  minScore    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
