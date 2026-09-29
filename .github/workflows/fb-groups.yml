@@ -25,7 +25,15 @@ jobs:
     env:
       FACEBOOK_SESSION_COOKIE: ${{ secrets.FACEBOOK_SESSION_COOKIE }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FLARESOLVERR_URL: http://localhost:8191
       TZ: Africa/Cairo
+    services:
+      flaresolverr:
+        image: flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+        env:
+          LOG_LEVEL: info
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +45,11 @@ jobs:
         run: |
           bun install --frozen-lockfile || bun install
           bunx prisma generate --schema=prisma/schema.production.prisma
+
+      - name: 🔎 اكتشاف جروبات جديدة (تدوير يومي — حقن حتى 8 بـACTIVE)
+        run: |
+          pip install --quiet "psycopg[binary]"
+          python3 scripts/fb_discover.py || echo "⚠️ الاكتشاف فشل — المسح هيكمل عادي"
 
       - name: مسح جروبات — دورات متكررة ~45 دقيقة
         run: |
@@ -50,6 +63,10 @@ jobs:
             sleep 900   # 15 دقيقة بين الدورات — إيقاع محترم لحساب فيسبوك
           done
           echo "✅ انتهت $PASS دورات مسح في $((SECONDS/60)) دقيقة"
+
+      - name: 📉 تقييم الجروبات — إيقاف العقيم وترقية المنتِج + لوحة صدارة
+        if: always()
+        run: bunx tsx scripts/fb-eval.ts || echo "⚠️ التقييم فشل — نكمل"
 
   # 🔁 السلسلة الدائمة — dispatch واحد بس لكل جيل
   chain:
