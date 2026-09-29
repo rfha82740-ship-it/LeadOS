@@ -1,0 +1,56 @@
+[
+  {
+    "url": "https://github.com",
+    "name": "theholocron/skills: Shared agent skill registry.",
+    "snippet": "Aug 20, 2026 — Discover and install agent skills from the skills . sh . Skills are installed by holocron setup based on the skills field in holocron.config.ts .",
+    "host_name": "github.com",
+    "rank": 0,
+    "date": "Aug 20, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://open-vsx.org",
+    "name": "Agent Skills - Browse, Install & Manage",
+    "snippet": "Install skills to any supported coding agent with a single click: Cursor; Claude Code; Codex; Gemini CLI; OpenCode; Antigravity. Flexible Installation Options. Read more",
+    "host_name": "open-vsx.org",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.truefoundry.com",
+    "name": "Deploy to Vercel — Skills Registry",
+    "snippet": "Check whether the Vercel CLI is installed (no escalation needed for this check):. command -v vercel . If vercel is installed , try deploying with the CLI :.",
+    "host_name": "www.truefoundry.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://snyk.io",
+    "name": "Securing the Agent Skill Ecosystem: How Snyk and Vercel",
+    "snippet": "On January 20, 2026, Vercel released skills , a CLI tool and open ecosystem for installing and managing skill packages for AI agents . The skills . sh directory ...",
+    "host_name": "snyk.io",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://explainx.ai",
+    "name": "vercel-deploy — AI agent skill",
+    "snippet": "Apr 8, 2026 — Run the install command Execute the skills CLI command in your project's root directory to begin installation: install was straightforward and ...",
+    "host_name": "explainx.ai",
+    "rank": 4,
+    "date": "Apr 8, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.claudedirectory.org",
+    "name": "Install Vercel Kv – Best Claude Code Plugin Setup (August 2026",
+    "snippet": "... command for that). Installing with skills.sh. skills.sh is an open agent-skills registry and npx skills CLI (maintained by Vercel) that auto-detects your coding ...",
+    "host_name": "www.claudedirectory.org",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  }
+]

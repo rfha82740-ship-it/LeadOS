@@ -147,6 +147,33 @@ model GitSkill {
   @@index([relevance])
 }
 
+// HubSkill: مهارة منسّقة من مكتبة ClawHub العالمية (clawhub.ai — سجل OpenClaw الرسمي)
+// سياسة الاستيراد: «تعليمات فقط» — SKILL.md بيتخزن كنص للـAI، مفيش أي سكريبت بيتنفذ.
+// البوابة: isSuspicious لازم تكون false + فحص محتوى (مفيش curl/exec/تسريب مفاتيح).
+model HubSkill {
+  id          String    @id @default(cuid())
+  slug        String    @unique // معرّف المكتبة (owner/slug)
+  owner       String    @default("") // ناشر المهارة
+  name        String
+  summary     String    @default("") // الوصف الرسمي من ClawHub
+  body        String    @default("") // أول ~2500 حرف من توجيهات SKILL.md
+  tags        String    @default("") // كلمات مفتاحية مفصولة بفواصل (منصات + تخصصات)
+  relevance   Float     @default(0) // درجة الصلة بالصيد عند الحصاد
+  installs    Int       @default(0) // إحصائيات المكتبة وقت الحصاد
+  stars       Int       @default(0)
+  downloads   Int       @default(0)
+  sourceUrl   String    @default("") // رابط المهارة على clawhub.ai
+  useCount    Int       @default(0) // مرات الدخول في برومبتات الـAI
+  leadCount   Int       @default(0) // ليدز نزلت وأنا حاضر في السياق
+  weight      Float     @default(1.0)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([relevance])
+  @@index([weight])
+}
+
 model WorkspaceMember {
   id          String   @id @default(cuid())
   workspaceId String

@@ -14,6 +14,8 @@ import { PSYCH_DOCTRINE, detectPsychContext } from "./psychology"
 import { EXPERT_CORE, expertiseBrief, objectionBrief } from "./expertise"
 import { recordTacticUse, evolutionTick } from "./evolution"
 import { gateCheck } from "./gate"
+import { gitSkillsTactics } from "@/lib/skills/gitskills"
+import { hubTactics } from "@/lib/skills/hub"
 
 const trunc = (s: unknown, n: number) => String(s ?? "").slice(0, n)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -130,12 +132,24 @@ ${market}` : "",
     expertiseBrief(lastClient) ? `\n\n${expertiseBrief(lastClient)}` : ""
   }${objectionBrief(lastClient) ? `\n\n${objectionBrief(lastClient)}` : ""}`
 
+  // دروس ميدانية من المكتبتين العالميتين (GitSkills 3.8M مهارة + ClawHub منسّقة):
+  // أعلى التكتيكات وزنًا في البيع/المتابعة بتدخل سياق زيزو — ومكتبته بتكبر مع كل حصاد
+  const libNiche = `sales follow up closing objection whatsapp ${conv.lead?.business?.category ?? ""}`.trim()
+  const [libGit, libHub] = await Promise.all([
+    gitSkillsTactics("", libNiche, 2).catch(() => [] as string[]),
+    hubTactics("", libNiche, 2).catch(() => [] as string[]),
+  ])
+  const libLines = [...(libGit ?? []), ...(libHub ?? [])]
+  const tacticsBlock = libLines.length
+    ? `\n\nتكتيكات ميدانية من مكتبة التكتيكات العالمية (استلهم أسلوبك منها من غير ما تنقلها حرفيًا):\n${libLines.join("\n")}`
+    : ""
+
   const system = `${zizoPersona({
     agencyName: cfg.agencyName,
     servicesDigest: SERVICES_DIGEST,
     memoryCtx,
     stageLine: stageGuide,
-  })}\n\n${HUMAN_RULES}${psychBlock}${expertBlock}`
+  })}\n\n${HUMAN_RULES}${psychBlock}${expertBlock}${tacticsBlock}`
   const user = `المحادثة لحد دلوقتي:
 ${chatTranscript(conv.messages) || "(لسه مفيش رسايل)"}
 

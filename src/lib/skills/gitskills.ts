@@ -28,7 +28,7 @@ const RELEVANCE_TERMS: Array<[RegExp, number, string]> = [
   [/market research|competitor analysis|niche research/i, 8, "research"],
 ]
 
-const MIN_RELEVANCE = 24 // تحت كده المهارة عامة جدًا أو إنذار كاذب — مش بتدخل المكتبة
+export const MIN_RELEVANCE = 24 // تحت كده المهارة عامة جدًا أو إنذار كاذب — مش بتدخل المكتبة
 
 export interface HarvestedSkill {
   repo: string
@@ -58,8 +58,8 @@ function parseFrontmatter(raw: string): { fm: Record<string, string>; body: stri
   return { fm, body }
 }
 
-/** حوسبة الصلة + الوسوم من (الاسم + الوصف + المحتوى) */
-function scoreSkill(name: string, description: string, body: string): { relevance: number; tags: string[] } {
+/** حوسبة الصلة + الوسوم من (الاسم + الوصف + المحتوى) — مشتركة مع جسر ClawHub (hub.ts) */
+export function scoreSkill(name: string, description: string, body: string): { relevance: number; tags: string[] } {
   // 4000 حرف: الـfrontmatter الطويل + مقدمات المهارات — من غير ما نكلف أنفسنا بالملف كله
   const hay = `${name} ${description} ${body.slice(0, 4000)}`
   let relevance = 0
@@ -285,6 +285,33 @@ export async function recordGitSkillUse(names: string[]): Promise<void> {
   try {
     for (const name of names) {
       await db.gitSkill.updateMany({ where: { name }, data: { useCount: { increment: 1 }, lastUsedAt: new Date() } })
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * مكافأة المنصة: ليد نزل من منصة — أعلى التكتيكات المرتبطة بالمنصة بتاخد وزن.
+ * (دي الحلقة اللي كانت ناقصة: التكتيكات اللي ساعدت في الاستعلام بيتكافأوا لو جابوا ليد)
+ */
+export async function rewardGitSkillsTactics(platform: string, k = 2): Promise<void> {
+  try {
+    const platformTag = platform.toLowerCase()
+    const rows = await db.gitSkill.findMany({
+      where: {
+        OR: [
+          { tags: { contains: platformTag } },
+          { body: { contains: platform.slice(0, 4).toLowerCase() } },
+          { description: { contains: platform.slice(0, 4).toLowerCase() } },
+        ],
+      },
+      orderBy: [{ weight: "desc" }, { relevance: "desc" }],
+      take: k,
+      select: { id: true },
+    })
+    for (const r of rows) {
+      await db.gitSkill.update({ where: { id: r.id }, data: { leadCount: { increment: 1 }, weight: { increment: 0.2 } } }).catch(() => undefined)
     }
   } catch {
     // best-effort

@@ -9,6 +9,7 @@ import { PLATFORM_QUERY_SHAPES, platformQueries } from "@/lib/discovery"
 import { SKILL_BY_PLATFORM } from "./registry"
 import { topLessons, recentAiLessonCount, saveAiLessons } from "./learning"
 import { gitSkillsTactics, recordGitSkillUse } from "./gitskills"
+import { hubTactics, recordHubSkillUse } from "./hub"
 
 /** استعلامات منصة لجوب: الدروس المجربة الأول — بعدين الأشكال الثابتة — dedup */
 export async function queriesForPlatform(wsId: string, platform: string, baseQuery: string, max = 4): Promise<string[]> {
@@ -51,9 +52,12 @@ export async function freshAiQueries(
   const recent = await recentAiLessonCount(wsId, platform).catch(() => 99)
   if (recent >= 3) return null // المنصة دي اتولّدت ليها استعلامات حديثة — نسيب الباقي
   const shapes = PLATFORM_QUERY_SHAPES[platform]?.seeds ?? []
-  // ═══ تكتيكات GitSkills (مكتبة 3.8M مهارة عالمية): أفضل ما يناسب المنصة/النيش يدخل البرومبت ═══
-  const tactics = await gitSkillsTactics(platform, niche, 3).catch(() => [] as string[])
-  if (tactics.length) recordGitSkillUse(tactics.map((t) => t.replace(/^\- \[GitSkills\] ([^:]+):.*$/, "$1"))).catch(() => undefined)
+  // ═══ تكتيكات المكتبتين العالميتين (GitSkills 3.8M + ClawHub المنسّقة): الأنسب للمنصة/النيش يدخل البرومبت ═══
+  const gitLines = await gitSkillsTactics(platform, niche, 3).catch(() => [] as string[])
+  const hubLines = await hubTactics(platform, niche, 2).catch(() => [] as string[])
+  const tactics = [...gitLines, ...hubLines]
+  if (gitLines.length) recordGitSkillUse(gitLines.map((t) => t.replace(/^\- \[GitSkills\] ([^:]+):.*$/, "$1"))).catch(() => undefined)
+  if (hubLines.length) recordHubSkillUse(hubLines.map((t) => t.replace(/^\- \[ClawHub\] ([^:]+):.*$/, "$1"))).catch(() => undefined)
   const result = await aiChatJson<{ queries?: string[] }>(
     [
       {
@@ -62,7 +66,7 @@ export async function freshAiQueries(
           `أنت حدّاد استعلامات بحث في LeadOS. مهمتك: اكتب 3 استعلامات بحث جوجل جديدة ومختلفة بلغة المنصة "${platform}". ` +
           `وصف المنصة: ${skill.description.slice(0, 200)}\n` +
           (shapes.length ? `أمثلة على لغة المنصة (قلّد الأسلوب لكن ابتكر كلمات جديدة): ${shapes.join(" | ")}\n` : "") +
-          (tactics.length ? `تكتيكات مجربة من مكتبة GitSkills العالمية (استلهم منها زوايا بحث جديدة):\n${tactics.join("\n")}\n` : "") +
+          (tactics.length ? `تكتيكات مجربة من المكتبتين العالميتين (GitSkills 3.8M + ClawHub) (استلهم منها زوايا بحث جديدة):\n${tactics.join("\n")}\n` : "") +
           `النيش المستهدف: «${niche}» (سوق مصري، عربي مصري طبيعي).\n` +
           `قواعد صارمة: استعلام من 3-6 كلمات، من غير site: ومن غير علامات ترقيم، ومن غير تكرار للأمثلة حرفيًا. ` +
           `ارجع JSON فقط: {"queries":["استعلام1","استعلام2","استعلام3"]}`,
@@ -91,9 +95,12 @@ export async function aiSelectPlatforms(
 ): Promise<string[] | null> {
   if (Date.now() - lastAiSelectAt < AI_SELECT_GAP_MS) return null
   if (!candidates.length) return null
-  // ═══ خريطة المهارات: أعلى تكتيكات GitSkills المرتبطة بالمرشحين تظهر في القائمة ═══
-  const tacticLines = await gitSkillsTactics("", niche, 4).catch(() => [] as string[])
-  if (tacticLines.length) recordGitSkillUse(tacticLines.map((t) => t.replace(/^\- \[GitSkills\] ([^:]+):.*$/, "$1"))).catch(() => undefined)
+  // ═══ خريطة المهارات: أعلى تكتيكات المكتبتين العالميتين المرتبطة بالمرشحين تظهر في القائمة ═══
+  const gitTacticLines = await gitSkillsTactics("", niche, 3).catch(() => [] as string[])
+  const hubTacticLines = await hubTactics("", niche, 2).catch(() => [] as string[])
+  const tacticLines = [...gitTacticLines, ...hubTacticLines]
+  if (gitTacticLines.length) recordGitSkillUse(gitTacticLines.map((t) => t.replace(/^\- \[GitSkills\] ([^:]+):.*$/, "$1"))).catch(() => undefined)
+  if (hubTacticLines.length) recordHubSkillUse(hubTacticLines.map((t) => t.replace(/^\- \[ClawHub\] ([^:]+):.*$/, "$1"))).catch(() => undefined)
   const lines = candidates
     .map((p) => {
       const skill = SKILL_BY_PLATFORM[p]
@@ -113,7 +120,7 @@ export async function aiSelectPlatforms(
           `فكر تجاري: مصدر فيه نية شراء صريحة وقريبة من النيش يفضل على مصدر عام، والمصادر اللي أرقامها صفر من فترة طويلة عطّلها شوية. ` +
           `ارجع JSON فقط: {"picks":["PLATFORM1","PLATFORM2"],"reason":"سطر واحد"} — المفاتيح من القائمة حرفيًا.`,
       },
-      { role: "user", content: lines.join("\n") + (tacticLines.length ? `\n\nتكتيكات من مكتبة GitSkills العالمية ذات صلة بالنيش (اعتبارها في الاختيار):\n${tacticLines.join("\n")}` : "") },
+      { role: "user", content: lines.join("\n") + (tacticLines.length ? `\n\nتكتيكات من المكتبتين العالميتين (GitSkills 3.8M مهارة + ClawHub منسّقة) ذات صلة بالنيش (اعتبارها في الاختيار):\n${tacticLines.join("\n")}` : "") },
     ],
     { workspaceId: wsId, runType: "SKILL_SELECT", temperature: 0.2, maxTokens: 250, task: "reason" },
   )

@@ -15,7 +15,8 @@ import { skillStatsSnapshot, recordSkillRun, recordSkillResults, recordSkillDryR
 import { SKILL_BY_PLATFORM } from "@/lib/skills/registry"
 import { queriesForPlatform, freshAiQueries, aiSelectPlatforms } from "@/lib/skills/selector"
 import { graphPlatformPriorities } from "@/lib/skills/graph"
-import { harvestGitSkills } from "@/lib/skills/gitskills"
+import { harvestGitSkills, rewardGitSkillsTactics } from "@/lib/skills/gitskills"
+import { harvestClawHub, rewardHubTactics } from "@/lib/skills/hub"
 const WORKER_ID = `worker-${process.pid}-${Math.random().toString(36).slice(2, 7)}`
 /** ميزانية وقت الجوبة الواحدة — لازم تخلص قبل maxDuration=120 بتاع الـtick */
 // (كانت 110ث — الجوبة الواحدة بتاكل العنب والجوبة التانية كانت بيموت نصها في الـtimeout)
@@ -584,6 +585,12 @@ export async function ingestDiscoveredItems(
       const win = intentSignal === "EXPLICIT_NEED" || intentSignal === "COMPETITOR_ENGAGER" || classification.score >= 55
       await recordSkillLead(wsId, viaType, { win, qualityScore: classification.score }).catch(() => undefined)
       if (viaQuery) await recordLesson(wsId, viaType, viaQuery, { qualityScore: classification.score }).catch(() => undefined)
+      // مكافأة المكتبتين العالميتين: التكتيكات المرتبطة بالمنصة اللي جابت الليد بتاخد وزن —
+      // (دي الحلقة اللي كانت ناقصة: التكتيك اللي بيجيب ليدز بيبقى أقوى في البرومبتات الجاية)
+      if (win) {
+        rewardGitSkillsTactics(viaType).catch(() => undefined)
+        rewardHubTactics(viaType).catch(() => undefined)
+      }
       leadsByPlatform[viaType] = (leadsByPlatform[viaType] ?? 0) + 1
     }
 
@@ -690,6 +697,12 @@ async function processGitSkillsHarvestJob(): Promise<string> {
   return `added=${h.added} checked=${h.checked} skipped=${h.skipped} — ${h.note}`
 }
 
+/** حصاد ClawHub (المكتبة المنسّقة clawhub.ai): جوب مستقل كل 6 ساعات — تعليمات فقط بعد بوابة أمان */
+async function processClawHubHarvestJob(): Promise<string> {
+  const h = await harvestClawHub()
+  return `added=${h.added} checked=${h.checked} skipped=${h.skipped} — ${h.note}`
+}
+
 /** Main tick: create scheduled discovery jobs from rules, then process a batch. */
 export async function processTick(
   maxJobs = 6,
@@ -741,6 +754,25 @@ export async function processTick(
       }
     }
   } catch { /* الحصاد best-effort — ميفشّلش النبضة */ }
+
+  // 0.75) حصاد ClawHub (المكتبة المنسّقة): مرة كل 6 ساعات — نفس منطق 0.7 بالظبط.
+  // بحث موجّه في clawhub.ai → SKILL.md بعد بوابة أمان («تعليمات فقط») → مكتبة HubSkill
+  try {
+    const recentHubHarvest = await db.job.findFirst({
+      where: { type: "CLAWHUB_HARVEST", createdAt: { gte: new Date(Date.now() - 6 * 3600_000) }, status: { in: ["SUCCESS", "RUNNING"] } },
+      select: { id: true },
+    })
+    if (!recentHubHarvest) {
+      const ws = await db.workspace.findFirst({ where: { isActive: true }, select: { id: true } })
+      if (ws) {
+        const job = await enqueueJob(ws.id, "CLAWHUB_HARVEST", {}, 15)
+        await db.job.update({ where: { id: job.id }, data: { status: "RUNNING", startedAt: new Date(), lockedAt: new Date(), workerId: "inline-hub-harvest", attempts: { increment: 1 } } })
+        const h = await harvestClawHub()
+        await db.job.update({ where: { id: job.id }, data: { status: "SUCCESS", completedAt: new Date(), result: { message: `added=${h.added} checked=${h.checked} — ${h.note}` } as Prisma.InputJsonValue } })
+        if (h.added) details.push(`CLAWHUB: ${h.note}`)
+      }
+    }
+  } catch { /* حصاد المكتبة best-effort — ميفشّلش النبضة */ }
 
   // 1) Scheduler: enqueue due rules (every tick checks; jobs are cheap and idempotent)
   const rules = await db.searchRule.findMany({ where: { enabled: true }, orderBy: { priority: "desc" } })
@@ -801,6 +833,7 @@ export async function processTick(
       else if (job.type === "REACTIVATION") result = await processReactivationJob(job.id)
       else if (job.type === "SOURCE_EVALUATION") result = await processSourceEvaluationJob(job.id)
       else if (job.type === "GIT_SKILLS_HARVEST") result = await processGitSkillsHarvestJob()
+      else if (job.type === "CLAWHUB_HARVEST") result = await processClawHubHarvestJob()
       else result = `no handler for type ${job.type}`
       await db.job.update({
         where: { id: job.id },
