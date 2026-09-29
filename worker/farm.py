@@ -142,8 +142,22 @@ def ddg_search(query: str, limit: int = 12) -> list:
 def serp_shard(platform: str) -> list:
     domains = PLATFORM_DOMAINS.get(platform, [])
     items = []
+    flare_first = bool(os.environ.get("FLARESOLVERR_URL"))
     for q in QUERIES.get(platform, [])[:4]:
-        hits = ddg_search(q, 12)
+        if flare_first:
+            raw = flare_get(f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}")
+            hits = []
+            for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', raw, re.S):
+                href, title = m.group(1), re.sub(r"<[^>]+>", "", m.group(2)).strip()
+                if "uddg=" in href:
+                    u = re.search(r"uddg=([^&]+)", href)
+                    if u:
+                        href = requests.utils.unquote(u.group(1))
+                if title and href.startswith("http"):
+                    hits.append({"title": htmllib.unescape(title), "url": href})
+            print(f"  [flare-serp] {q[:44]!r} -> {len(hits)} نتايج")
+        else:
+            hits = ddg_search(q, 12)
         print(f"  [serp] {q[:44]!r} -> {len(hits)} نتايج")
         for h in hits:
             if domains and not any(d in h["url"] for d in domains):
@@ -266,7 +280,11 @@ def browser_shard(platform: str) -> list:
                 for a in page.eles("tag:a")[:400]:
                     href = a.attr("href") or ""
                     txt = (a.attr("title") or a.text or "").strip()
-                    if len(txt) < 12 or not href.startswith("http"):
+                    if len(txt) < 12:
+                        continue
+                    if href.startswith("/"):
+                        href = __import__("urllib.parse", fromlist=["urljoin"]).urljoin(url, href)
+                    if not href.startswith("http"):
                         continue
                     keep = False
                     if platform == "JOBS" and ("wuzzuf.net/jobs/" in href):
