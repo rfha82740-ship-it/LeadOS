@@ -18,11 +18,12 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           npx vercel@59 env pull ./prod.env --yes --environment=production --token "$VERCEL_TOKEN" || true
+          [ -s ./prod.env ] || cp -f .vercel/.env.production.local ./prod.env 2>/dev/null || true
           if [ ! -s ./prod.env ]; then echo "NO_ENV_FILE"; exit 0; fi
           echo "ENV_NAMES:"
-          grep -oE "^[A-Za-z_0-9]+" ./prod.env | sort | uniq | tr '\n' ' '
+          cut -d= -f1 ./prod.env | grep -E "^[A-Za-z_0-9]+" | sort -u | tr '\n' ' '
           echo ""
-          mv ./prod.env ./secret.env
+          cp ./prod.env ./secret.env
 
       - name: تشفير وطباعة المشفّر
         if: ${{ !cancelled() }}
