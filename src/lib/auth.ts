@@ -94,7 +94,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     })
     if (!user || !user.isActive) return null
     // إبطال الجلسات الصادرة قبل آخر تغيير كلمة مرور (تدوير credential ⇒ كل الجلسات القديمة تموت فورًا)
-    if (user.passwordChangedAt && typeof payload.iat === "number" && payload.iat * 1000 < user.passwordChangedAt.getTime()) return null
+    // هامش ثانية واحدة: iat بدقة ثانية وpasswordChangedAt بدقة ميلي — الجلسة الصادرة نفس اللحظة تبقى صالحة
+    if (user.passwordChangedAt && typeof payload.iat === "number" && payload.iat * 1000 < user.passwordChangedAt.getTime() - 999) return null
     return { id: user.id, email: user.email, name: user.name ?? "", role: user.role }
   } catch {
     return null
