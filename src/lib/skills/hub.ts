@@ -77,8 +77,13 @@ export function gateSkillMarkdown(content: string): { ok: boolean; reason: strin
   return { ok: true, reason: "عدّى البوابة" }
 }
 
-/** بحث موجّه في مكتبة ClawHub — بيرجع مرشحين غير مشبوهين بس (isSuspicious=false) */
-export async function hubSearch(query: string, limit = 8): Promise<HubCandidate[]> {
+/** بحث موجّه في مكتبة ClawHub — بيرجع مرشحين غير مشبوهين بس (isSuspicious=false) + سبب الفشل لو حصل */
+export interface HubSearchResult {
+  candidates: HubCandidate[]
+  httpStatus?: number
+  error?: string
+}
+export async function hubSearch(query: string, limit = 8): Promise<HubSearchResult> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 12_000)
   try {
@@ -87,7 +92,7 @@ export async function hubSearch(query: string, limit = 8): Promise<HubCandidate[
       headers: { "User-Agent": "LeadOS-HubBridge/1.0", Accept: "application/json" },
       cache: "no-store",
     })
-    if (!res.ok) return []
+    if (!res.ok) return { candidates: [], httpStatus: res.status, error: `HTTP ${res.status}` }
     const data = (await res.json()) as {
       results?: Array<Record<string, unknown>>
     }
@@ -116,9 +121,9 @@ export async function hubSearch(query: string, limit = 8): Promise<HubCandidate[
         sourceUrl: `${CLAWHUB_BASE}${String(r.canonicalUrl ?? `/${slug}`)}`.slice(0, 300),
       })
     }
-    return out
-  } catch {
-    return []
+    return { candidates: out, httpStatus: res.status }
+  } catch (err) {
+    return { candidates: [], error: err instanceof Error ? err.message.slice(0, 80) : "network" }
   } finally {
     clearTimeout(timer)
   }
@@ -221,13 +226,19 @@ export async function harvestClawHub(opts?: { budgetMs?: number }): Promise<HubH
 
   // جمع المرشحين من البحث + ترتيب بالصلة (المكوّن المشترك مع GitSkills) والإحصائيات
   const seen = new Set<string>()
+  const diag: string[] = [] // تشخيص كل استعلام — بيتكتب في نتيجة الجوب عشان الفشل مايتدفنش
   const scored: Array<{ c: HubCandidate; relevance: number; tags: string[] }> = []
   let checked = 0
   for (const q of picked) {
     if (Date.now() - started > budget) break
     const found = await hubSearch(q, 8)
-    checked += found.length
-    for (const c of found) {
+    if (found.error || found.httpStatus !== 200) {
+      diag.push(`q="${q}" ${found.error ?? `http=${found.httpStatus}`}`)
+    } else if (!found.candidates.length) {
+      diag.push(`q="${q}" 0-نتايج`)
+    }
+    checked += found.candidates.length
+    for (const c of found.candidates) {
       if (seen.has(c.slug)) continue
       seen.add(c.slug)
       const existing = await db.hubSkill.findUnique({ where: { slug: c.slug }, select: { id: true } }).catch(() => null)
@@ -282,7 +293,7 @@ export async function harvestClawHub(opts?: { budgetMs?: number }): Promise<HubH
     skipped: false,
     note: added
       ? `حصاد ClawHub: ${added} مهارة جديدة (رُفضت ${gatedOut} أمانًا) من ${checked} نتيجة بحث`
-      : `حصاد ClawHub: مفيش مرشحين عدّوا البوابة (${gatedOut} مرفوضة أمانًا من ${checked} نتيجة)`,
+      : `حصاد ClawHub: مفيش مرشحين عدّوا البوابة (${gatedOut} مرفوضة أمانًا من ${checked} نتيجة)${diag.length ? ` — ${diag.join(" | ")}` : ""}`,
   }
 }
 
