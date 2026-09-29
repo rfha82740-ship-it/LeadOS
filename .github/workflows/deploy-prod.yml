@@ -25,7 +25,7 @@ jobs:
           echo '{"projectId":"${{ secrets.VERCEL_PROJECT_ID }}","orgId":"${{ secrets.VERCEL_ORG_ID }}","projectName":"leados-v2"}' > .vercel/project.json
 
       - name: Deploy (production)
-        run: npx --yes vercel@59 deploy --prod --yes --force --token $${ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@59 deploy --prod --yes --force --token ${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
