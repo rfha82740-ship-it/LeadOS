@@ -65,6 +65,8 @@ export async function POST(req: Request) {
   }
   if (!user.isActive) return jsonError("الحساب موقوف", 403)
   noteLoginSuccess(req)
+  // الدخول الجديد يبطل كل الجلسات الأقدم منه (حماية من جلسة مسروقة قديمة)
+  await db.user.update({ where: { id: user.id }, data: { passwordChangedAt: new Date() } }).catch(() => undefined)
   await createSession(user.id)
   return json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } })
 }

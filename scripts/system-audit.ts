@@ -40,7 +40,7 @@ function concurrencyCalc(): { theoretical: number; farmJobs: number; browserProc
   // المتصفحات الحقيقية: shards اللي منصاتها فيها BROWSER_URLS (browser mode) — من farm.py
   const farmPy = readFileSync(join(ROOT, "worker/farm.py"), "utf-8")
   const browserPlatforms = [...farmPy.matchAll(/^\s+"([A-Z_]+)": \["https/gm)].map((m) => m[1])
-  const shards = farmPy.match(/SHARDS = \[(.+?)\]/s)?.[1]?.split(",").map((s) => s.trim().replace(/"/g, "")) ?? []
+  const shards = farmPy.match(/SHARDS = \[([\s\S]+?)\]/)?.[1]?.split(",").map((s) => s.trim().replace(/"/g, "")) ?? []
   const shardToPlatform = Object.fromEntries([...farmPy.matchAll(/"([a-z_]+)": "([A-Z_]+)"/g)].map((m) => [m[1], m[2]]))
   const realBrowserShards = shards.filter((s) => browserPlatforms.includes(shardToPlatform[s])).length
   const httpShards = shards.filter((s) => ["telegram", "reddit"].includes(s)).length
@@ -117,6 +117,8 @@ async function dbChecks(): Promise<void> {
     rows.push({ check: "TaskGraphs", value: String(graphs), verdict: "PASS" })
     rows.push({ check: "SkillOutcome records", value: String(outcomes), verdict: "PASS", note: "بتتعبى مع تشغيل الخرايط" })
     rows.push({ check: "SkillRetrieval records", value: String(retrievals), verdict: "PASS" })
+    const sysRow = await db.systemState.findUnique({ where: { id: "singleton" } }).catch(() => null)
+    rows.push({ check: "SystemState (السجل الرسمي)", value: sysRow ? sysRow.state : "غير موجود", verdict: sysRow ? "PASS" : "WARN" })
     await db.$disconnect()
   } catch (err) {
     rows.push({ check: "Database", value: "unreachable", verdict: "FAIL", note: err instanceof Error ? err.message.slice(0, 80) : "" })
@@ -192,6 +194,40 @@ function main() {
   const authLib = readFileSync(join(ROOT, "src/lib/auth.ts"), "utf-8")
   const authOk = login.includes("LOGIN_MAX_FAILS") && authLib.includes("scrypt") && authLib.includes("httpOnly")
   rows.push({ check: "Auth (scrypt + brute force + httpOnly + expiry)", value: authOk ? "مطبق" : "ناقص", verdict: authOk ? "PASS" : "FAIL" })
+
+  // 10.5) Final Hardening checks — السعة والجرد والحالة
+  // (أ) بوابة السعة موصّلة في كل السلاسل + ملف الميزانية سليم
+  const budgetPath = join(ROOT, ".github/concurrency-budget.json")
+  let budgetOk = false
+  let budgetLimit = 0
+  try {
+    const budget = JSON.parse(readFileSync(budgetPath, "utf-8"))
+    budgetOk = budget.githubJobLimit === 20 && Object.keys(budget.chains ?? {}).length === 6
+    budgetLimit = budget.githubJobLimit ?? 0
+  } catch { /* مفقود */ }
+  const gatedChains = chains.filter((c) => {
+    const src = readFileSync(join(ROOT, ".github/workflows", c), "utf-8")
+    return src.includes("node scripts/capacity-gate.mjs")
+  })
+  rows.push({ check: "Capacity gate موصّلة في السلاسل", value: `${gatedChains.length}/${chains.length}`, verdict: budgetOk && gatedChains.length === chains.length ? "PASS" : "FAIL", note: budgetOk ? `الميزانية: حد ${budgetLimit} + supervisor في النبضة` : "ملف الميزانية ناقص/مشوه" })
+  // (ب) تطابق ميزانية الـActions مع src/lib/supervisor.ts
+  const supSrc = readFileSync(join(ROOT, "src/lib/supervisor.ts"), "utf-8")
+  const supMatch = ["beat_tick", "beat_worker", "beat_adslib", "beat_fbgroups", "beat_radar", "beat_farm"].every((e) => supSrc.includes(e))
+  const supNeeds = (supSrc.match(/need: (\d+)/g) ?? []).map((s) => Number(s.replace("need: ", "")))
+  const budgetNeeds = (() => { try { return Object.values(JSON.parse(readFileSync(budgetPath, "utf-8")).chains).map((c: any) => c.need) } catch { return [] } })()
+  const needsMatch = supNeeds.length === 6 && budgetNeeds.length === 6 && [...supNeeds].sort().join(",") === [...budgetNeeds].sort().join(",")
+  rows.push({ check: "ميزانية السعة متطابقة (Actions ↔ supervisor)", value: needsMatch ? `متطابقة (${supNeeds.join("+")} = ${supNeeds.reduce((a, b) => a + b, 0)} جوب/جيل)` : "غير متطابقة", verdict: needsMatch && supMatch ? "PASS" : "WARN" })
+  // (ج) FlareSolverr: حاوية لكل shard job — من الـyml الفعلي
+  const farmYmlSrc = readFileSync(join(ROOT, ".github/workflows/browser-farm.yml"), "utf-8")
+  const flarePerJob = farmYmlSrc.includes("flaresolverr/flaresolverr") && farmYmlSrc.includes("FLARESOLVERR_URL")
+  rows.push({ check: "FlareSolverr accounting (من التهيئة)", value: flarePerJob ? `${c.flareContainers} حاوية — 1 لكل shard job (service) مشتركة بين part 0/1` : "غير محسوبة", verdict: flarePerJob ? "PASS" : "WARN", note: "مش متصفح — مفيش عدّ هوا مع العمال" })
+  // (د) مصدر الحقيقة الموحد للجرد
+  const invSrc = readFileSync(join(ROOT, "src/lib/farm-inventory.ts"), "utf-8")
+  const invConsistent = invSrc.includes("browserInstances: 8") && invSrc.includes("serpWorkers: 18") && invSrc.includes("httpWorkers: 4") && invSrc.includes("flaresolverrInstances: 15")
+  rows.push({ check: "Farm inventory موحد (audit ↔ API ↔ UI)", value: invConsistent ? "8 كروم · 18 SERP · 4 HTTP · 15 FlareSolverr" : "غير مطابق", verdict: invConsistent && invConsistent === (c.browserProcesses === 8 && c.serpWorkers === 18 && c.httpWorkers === 4) ? "PASS" : "WARN" })
+  // (هـ) SystemState (STOP end-to-end)
+  const sysStateModel = readFileSync(prodSchema, "utf-8").includes("model SystemState") && readFileSync(join(ROOT, "src/app/api/system/stop/route.ts"), "utf-8").includes("STOPPING")
+  rows.push({ check: "SystemState (STOPPING/STOPPED + أدلة)", value: sysStateModel ? "موديل + route بالحالات والأدلة" : "ناقص", verdict: sysStateModel ? "PASS" : "FAIL" })
 
   // 11) Env requirements (مطلوبات الإنتاج)
   const requiredEnv = ["DATABASE_URL", "AUTH_SECRET", "CRON_SECRET", "INGEST_API_KEY", "LEADOS_BASE_URL"]

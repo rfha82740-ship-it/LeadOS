@@ -64,15 +64,22 @@ const NETWORK_PATTERNS: Array<[RegExp, string]> = [
 ]
 
 // ═══ أنماط التنفيذ (EXECUTION SAFETY CHECK) — نفس روح بوابة ClawHub وأشد ═══
+// القاعدة: لازم صيغة قابلة للتنفيذ فعليًا (استدعاء/استيراد/أمر) — الكلام الأكاديمي عن المفهوم مش جريمة
 const EXECUTION_PATTERNS: Array<[RegExp, string]> = [
   [/curl\s+[^\n]*\|\s*(ba)?sh|wget\s+[^\n]*\|\s*(ba)?sh/i, "تحميل وتنفيذ سكريبت من الإنترنت"],
   [/\b(bash|sh|zsh|powershell)\s+-c\b/i, "تنفيذ أوامر شل مباشرة"],
   [/\beval\s*\(|new\s+Function\s*\(/i, "تنفيذ كود ديناميكي"],
-  [/os\.system|subprocess\.(run|call|Popen)|child_process|execSync|spawnSync/i, "تشغيل عمليات نظام"],
+  [/os\.system|subprocess\.(run|call|Popen)|require\s*\(\s*['"]child_process['"]|from\s+['"]child_process['"]|child_process\.(exec|spawn|fork)|execSync|spawnSync/i, "تشغيل عمليات نظام"],
   [/\brm\s+-rf\s+[~\/]/i, "أمر حذف خطير"],
   [/npm\s+install[^\n]*&&|pip\s+install[^\n]*&&/i, "تثبيت حزم وتشغيل متسلسل"],
   [/keystore|metamask|seed\s*phrase|wallet\s*(seed|mnemonic)/i, "محاولة الوصول لمحافظ"],
   [/xox[baprs]-[a-zA-Z0-9-]{10,}|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{30,}/i, "أنماط مفاتيح حقيقية جوه المحتوى"],
+]
+
+// ═══ أنماط بيانات الاعتماد السحابية (CLOUD CREDENTIAL ACCESS) ═══
+const CLOUD_CRED_PATTERNS: Array<[RegExp, string]> = [
+  [/AWS_(SECRET_)?ACCESS[_\-]?KEY(_ID)?|AZURE_(CLIENT_)?SECRET|GOOGLE_APPLICATION_CREDENTIALS|GCLOUD\s+AUTH|\.aws\/credentials/i, "محاولة الوصول لبيانات اعتماد سحابية"],
+  [/169\.254\.169\.254|metadata\.google\.internal/i, "محاولة الوصول لنقطة نهاية بيانات الحساب السحابية"],
 ]
 
 // ═══ فحص المصدر: قائمة المصادر المسموح بها لمكتبات المهارات ═══
@@ -177,6 +184,17 @@ export function assessSkillTrust(input: SkillTrustInput): TrustResult {
       hardReject = true
       reasons.push(`طلب تنفيذ: ${why}`)
       break
+    }
+  }
+  // بيانات الاعتماد السحابية — نفس المعاملة القاسية (رفض قاطع)
+  if (!checks.some((c) => c.stage === "EXECUTION" && !c.ok)) {
+    for (const [re, why] of CLOUD_CRED_PATTERNS) {
+      if (re.test(full)) {
+        checks.push({ stage: "EXECUTION", ok: false, penalty: 100, detail: why })
+        hardReject = true
+        reasons.push(why)
+        break
+      }
     }
   }
   if (!checks.some((c) => c.stage === "EXECUTION" && !c.ok)) checks.push({ stage: "EXECUTION", ok: true, penalty: 0, detail: "نضيف" })

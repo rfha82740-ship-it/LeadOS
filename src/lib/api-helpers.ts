@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import type { Workspace } from "@prisma/client"
 
 export function json(data: unknown, status = 200) {
+  // requestId للـtrace: بيتولد في middleware وبيبقى في رد كل API (Observability #14)
   return NextResponse.json(data as Record<string, unknown>, { status })
 }
 

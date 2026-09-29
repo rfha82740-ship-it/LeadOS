@@ -35,7 +35,7 @@ export async function enqueueJob(
 }
 
 /** Claim up to N queued jobs (atomic-ish: lock via lockedAt + status). */
-async function claimJobs(limit: number) {
+export async function claimJobs(limit: number) {
   const jobs = await db.job.findMany({
     where: {
       status: { in: ["QUEUED", "RETRYING"] },

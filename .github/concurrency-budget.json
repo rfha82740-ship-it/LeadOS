@@ -1,0 +1,13 @@
+{
+  "githubJobLimit": 20,
+  "safetyMargin": 1,
+  "comment": "ميزانية التزامن المركزية — المصدر الوحيد لقرارات الـdispatch. need=عدد الجوب اللي السلسلة محتاجاه للجيل الواحد. critical chains بتتسمح دايمًا (النبضة/العامل). farm قابلة للتأجيل وtick بيحييها.",
+  "chains": {
+    "beat_tick":     { "workflow": "cron-tick.yml",   "name": "Cron Tick",   "priority": 0, "need": 1,  "critical": true,  "deferred": false },
+    "beat_worker":   { "workflow": "worker.yml",      "name": "Worker",      "priority": 1, "need": 1,  "critical": true,  "deferred": false },
+    "beat_adslib":   { "workflow": "ads-library.yml", "name": "Ads Library", "priority": 2, "need": 1,  "critical": false, "deferred": false },
+    "beat_fbgroups": { "workflow": "fb-groups.yml",   "name": "FB Groups",   "priority": 2, "need": 1,  "critical": false, "deferred": false },
+    "beat_radar":    { "workflow": "radar.yml",       "name": "Radar",       "priority": 2, "need": 1,  "critical": false, "deferred": false },
+    "beat_farm":     { "workflow": "browser-farm.yml","name": "Browser Farm","priority": 3, "need": 15, "critical": false, "deferred": true }
+  }
+}

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
+import { CommandBar } from "./command-bar"
 import { Flame, UserPlus, FlaskConical, Bell, CheckSquare, Radio, Flame as FlameIcon, Activity, Zap } from "lucide-react"
 import { SkillsBrainCard } from "./skills-card"
 
@@ -56,6 +57,8 @@ export function OverviewView({ panel, onOpenLead, onGoTo }: { panel: string; onO
 
   return (
     <div className="space-y-5">
+      {/* شريط القيادة المركزي — SYSTEM/QUEUE/AI/SEARCH/FARM/RADAR/ZIZO */}
+      <CommandBar onGoTo={onGoTo} />
       {/* KPI grid */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard title="Leads ساخنة 🔥" value={k.hotLeads} tone="border-rose-500/30 bg-rose-500/10" icon={<Flame className="h-5 w-5 text-rose-400" />} onClick={() => onGoTo("leads")} />

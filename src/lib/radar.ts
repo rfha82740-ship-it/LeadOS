@@ -300,10 +300,12 @@ export async function ingestInstantPosts(
 
 function cairoNow(): { hour: number; minute: number; dayStart: Date } {
   const now = new Date()
-  const cairo = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Cairo" }))
-  const dayStart = new Date(cairo)
-  dayStart.setHours(0, 0, 0, 0)
-  return { hour: cairo.getHours(), minute: cairo.getMinutes(), dayStart }
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Cairo", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(now)
+  const hour = Number(parts.find(p => p.type === "hour")?.value ?? 0) % 24
+  const minute = Number(parts.find(p => p.type === "minute")?.value ?? 0)
+  // لحظة منتصف ليل القاهرة الحقيقية (UTC) = الآن − (المنقضي من اليوم القاهري)
+  const dayStart = new Date(now.getTime() - (hour * 60 + minute) * 60_000)
+  return { hour, minute, dayStart }
 }
 
 const rnd = (min: number, max: number) => min + Math.random() * (max - min)

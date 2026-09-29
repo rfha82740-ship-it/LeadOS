@@ -33,7 +33,8 @@ function b64url(input: Buffer | string): string {
 
 export function signToken(payload: Record<string, unknown>, ttlSeconds = SESSION_TTL_SECONDS): string {
   const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }))
-  const body = b64url(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + ttlSeconds }))
+  const now = Math.floor(Date.now() / 1000)
+  const body = b64url(JSON.stringify({ ...payload, iat: now, exp: now + ttlSeconds }))
   const sig = createHmac("sha256", SECRET).update(`${header}.${body}`).digest("base64url")
   return `${header}.${body}.${sig}`
 }
@@ -89,9 +90,11 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     if (!payload || typeof payload.sub !== "string") return null
     const user = await db.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, name: true, role: true, isActive: true },
+      select: { id: true, email: true, name: true, role: true, isActive: true, passwordChangedAt: true },
     })
     if (!user || !user.isActive) return null
+    // إبطال الجلسات الصادرة قبل آخر تغيير كلمة مرور (تدوير credential ⇒ كل الجلسات القديمة تموت فورًا)
+    if (user.passwordChangedAt && typeof payload.iat === "number" && payload.iat * 1000 < user.passwordChangedAt.getTime()) return null
     return { id: user.id, email: user.email, name: user.name ?? "", role: user.role }
   } catch {
     return null

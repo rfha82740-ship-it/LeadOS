@@ -5,6 +5,7 @@ import { json, jsonError } from "@/lib/api-helpers"
 import { db } from "@/lib/db"
 import { scanDueGroups } from "@/lib/monitors/scan"
 import { zizoTick } from "@/lib/agent/zizo/brain"
+import { superviseChains } from "@/lib/supervisor"
 
 /**
  * Orchestrator tick endpoint — designed for external cron (cron-job.org / Vercel Cron).
@@ -87,6 +88,15 @@ async function handle(req: Request) {
     }
 
     console.log(`[tick] ${JSON.stringify({ at: new Date().toISOString(), ...result, groupScan, zizo })}`)
+
+    // Supervisor المركزي: فحص سعة GitHub + إحياء السلاسل الميتة/المؤجلة (فشله لا يمس النبضة)
+    try {
+      const sup = await superviseChains()
+      if (sup.revived.length || sup.error) console.log(`[supervisor] ${JSON.stringify(sup)}`)
+      else console.log(`[supervisor] سليم — لا إحياء مطلوب (${sup.skipped.length} متخطاة)`)
+    } catch (err) {
+      console.error("[supervisor] crashed:", err instanceof Error ? err.message.slice(0, 120) : err)
+    }
   })
 
   return json({ ok: true, at: new Date().toISOString(), async: true, maxJobs, full: fullSweep || undefined })

@@ -11,7 +11,7 @@ on:
         required: true
         default: "set-stop-env"
         type: choice
-        options: [set-stop-env, status, redeploy]
+        options: [set-stop-env, status, redeploy, rotate-auth-secrets]
 
 concurrency:
   group: leados-vercel-ops
@@ -49,3 +49,28 @@ jobs:
         if: github.event.inputs.mode == 'redeploy'
         run: |
           npx vercel@59 deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -8
+
+      # تدوير الأسرار المكشوفة في Git history (Final Hardening #27):
+      # القيمة بتتولد جوه الـrunner (openssl rand) — مش بتتطبع ولا بتتخزن في أي لوج.
+      # بتتحدّث في Vercel (CRON_SECRET + AUTH_SECRET) وفي GitHub Secrets (CRON_SECRET للسلاسل).
+      # أثر AUTH_SECRET: كل الجلسات الحالية تنتهي (دخول جديد مطلوب) — مقصود.
+      - name: وضع rotate-auth-secrets — تدوير CRON_SECRET + AUTH_SECRET
+        if: github.event.inputs.mode == 'rotate-auth-secrets'
+        env:
+          GH_PAT: ${{ secrets.LEADOS_GH_PAT }}
+          GH_TOKEN: ${{ secrets.LEADOS_GH_PAT }}
+        run: |
+          NEW_CRON=$(openssl rand -hex 32)
+          NEW_AUTH=$(openssl rand -hex 32)
+          # Vercel
+          npx vercel@59 env rm CRON_SECRET production --yes --token "$VERCEL_TOKEN" || true
+          printf '%s' "$NEW_CRON" | npx vercel@59 env add CRON_SECRET production --token "$VERCEL_TOKEN"
+          npx vercel@59 env rm AUTH_SECRET production --yes --token "$VERCEL_TOKEN" || true
+          printf '%s' "$NEW_AUTH" | npx vercel@59 env add AUTH_SECRET production --token "$VERCEL_TOKEN"
+          echo "✅ CRON_SECRET + AUTH_SECRET اتحدثوا على Vercel"
+          # GitHub Secrets (السلاسل بتستخدم CRON_SECRET لتفعيل النبضة)
+          gh secret set CRON_SECRET -b "$NEW_CRON" -R "$GITHUB_REPOSITORY"
+          echo "✅ CRON_SECRET اتحدث في GitHub Secrets"
+          # إعادة نشر عشان القيم الجديدة تشتغل على الـproduction
+          npx vercel@59 deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -3
+          echo "✅ تم النشر بالقيم الجديدة (المستخدم الخارجي للنبضة يحتاج تحديث السر الجديد من GitHub Secrets)"

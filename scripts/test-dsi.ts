@@ -105,7 +105,13 @@ async function main() {
   console.log(`  الأدلة؟ ${a.evidenceSummary}`)
   console.log(`  البلوكر؟ ${a.blocking ?? "مفيش"}`)
   console.log(`  الجاي؟ ${a.whatIsNext} — تقدم ${a.progress.done}/${a.progress.total}`)
-  if (a.progress.total < 12) throw new Error("العقد ناقصة")
+  // البناء قد يكون AI (9-11 عقدة مُحسّنة حسب الهدف) أو TEMPLATE (12) — المهم: اكتمال الهيكل الجوهري + التشغيل
+  if (a.progress.total < 9) throw new Error(`العقد ناقصة (${a.progress.total})`)
+  const essentialTypes = ["OBSERVE", "DISCOVER", "END"]
+  for (const t of essentialTypes) {
+    if (!insp.nodes.some((n) => String(n.type) === t)) throw new Error(`عقدة جوهرية مفقودة: ${t}`)
+  }
+  if (run.status !== "COMPLETED") throw new Error(`الخريطة ما اكتملتش: ${run.status}`)
   const discovered = insp.nodes.find((n) => n.type === "DISCOVER")
   if (!discovered) throw new Error("مفيش عقدة DISCOVER")
 

@@ -20,6 +20,7 @@ model User {
   role         String   @default("AGENT") // UserRole
   timezone     String   @default("Africa/Cairo")
   isActive     Boolean  @default(true)
+  passwordChangedAt DateTime? // آخر تغيير كلمة مرور — الجلسات الأقدم منها تلغى
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1550,4 +1551,16 @@ model WorkspaceSkill {
 
   @@index([workspaceId, status])
   @@index([status, updatedAt])
+}
+
+// حالة النظام الرسمية (سجل واحد) — STOP end-to-end مع الأدلة الكاملة (Final Hardening #5)
+model SystemState {
+  id        String   @id @default(cuid()) // "singleton"
+  state     String   @default("RUNNING") // RUNNING | STOPPING | STOPPED | DEGRADED
+  reason    String?
+  stoppedAt DateTime?
+  stoppedBy String?
+  resumedAt DateTime?
+  resumedBy String?
+  updatedAt DateTime @updatedAt
 }

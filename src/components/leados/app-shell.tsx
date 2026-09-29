@@ -1,6 +1,6 @@
 "use client";
 // LeadOS — App shell: لوحتين (كروت/أجنسي) + sidebar + topbar + view switching (SPA within /)
-import { useEffect, useState } from "react"
+import { useEffect, useState, Fragment } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -37,30 +37,31 @@ import {
   Activity, RadioTower, Network, Wrench, ListTree, ScrollText, Target, Power,
 } from "lucide-react"
 
-const NAV: Array<{ key: ViewKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { key: "overview", label: "نظرة عامة", icon: LayoutDashboard },
-  { key: "health", label: "مركز الصحة", icon: Activity },
-  { key: "ops", label: "العمليات الحية", icon: RadioTower },
-  { key: "graph", label: "خرايط التفكير DSI", icon: Network },
-  { key: "skills", label: "مركز المهارات", icon: Wrench },
-  { key: "groups", label: "تحدي الجروبات", icon: MessageSquareDot },
-  { key: "radar", label: "الرادار اللحظي", icon: Target },
-  { key: "feed", label: "البث المباشر", icon: Radar },
-  { key: "leads", label: "العملاء المحتملون", icon: Users },
-  { key: "pipeline", label: "خط المبيعات", icon: KanbanSquare },
-  { key: "research", label: "مركز الأبحاث", icon: FlaskConical },
-  { key: "sources", label: "المصادر", icon: Database },
-  { key: "rules", label: "قواعد البحث", icon: SlidersHorizontal },
-  { key: "sequences", label: "سلاسل المتابعة", icon: Repeat },
-  { key: "chat", label: "AI Commander", icon: Bot },
-  { key: "agent", label: "الأيجنت الذكي", icon: Crosshair },
-  { key: "entity", label: "الكيان المستقل", icon: BrainCircuit },
-  { key: "zizo", label: "زيزو — كيان البيع", icon: MessagesSquare },
-  { key: "queue", label: "الطابور والجوبات", icon: ListTree },
-  { key: "logs", label: "السجلات والتدقيق", icon: ScrollText },
-  { key: "analytics", label: "التحليلات", icon: BarChart3 },
-  { key: "tasks", label: "المهام", icon: CheckSquare },
-  { key: "settings", label: "الإعدادات", icon: Settings },
+const NAV: Array<{ key: ViewKey; label: string; icon: React.ComponentType<{ className?: string }>; group: string }> = [
+  // ═══ CONTROL CENTER — مركز القيادة ═══
+  { key: "overview", label: "نظرة عامة", icon: LayoutDashboard, group: "القيادة" },
+  { key: "health", label: "مركز الصحة", icon: Activity, group: "القيادة" },
+  { key: "ops", label: "العمليات الحية", icon: RadioTower, group: "القيادة" },
+  { key: "queue", label: "الطابور والجوبات", icon: ListTree, group: "القيادة" },
+  { key: "graph", label: "خرايط التفكير DSI", icon: Network, group: "العقل" },
+  { key: "skills", label: "مركز المهارات", icon: Wrench, group: "العقل" },
+  { key: "feed", label: "البث المباشر", icon: Radar, group: "الاكتشاف" },
+  { key: "sources", label: "المصادر", icon: Database, group: "الاكتشاف" },
+  { key: "rules", label: "قواعد البحث", icon: SlidersHorizontal, group: "الاكتشاف" },
+  { key: "leads", label: "العملاء المحتملون", icon: Users, group: "العملاء CRM" },
+  { key: "pipeline", label: "خط المبيعات", icon: KanbanSquare, group: "العملاء CRM" },
+  { key: "tasks", label: "المهام", icon: CheckSquare, group: "العملاء CRM" },
+  { key: "sequences", label: "سلاسل المتابعة", icon: Repeat, group: "العملاء CRM" },
+  { key: "research", label: "مركز الأبحاث", icon: FlaskConical, group: "العملاء CRM" },
+  { key: "analytics", label: "التحليلات", icon: BarChart3, group: "العملاء CRM" },
+  { key: "groups", label: "تحدي الجروبات", icon: MessageSquareDot, group: "القنوات" },
+  { key: "radar", label: "الرادار اللحظي", icon: Target, group: "القنوات" },
+  { key: "zizo", label: "زيزو — كيان البيع", icon: MessagesSquare, group: "القنوات" },
+  { key: "chat", label: "AI Commander", icon: Bot, group: "الذكاء" },
+  { key: "agent", label: "الأيجنت الذكي", icon: Crosshair, group: "الذكاء" },
+  { key: "entity", label: "الكيان المستقل", icon: BrainCircuit, group: "الذكاء" },
+  { key: "logs", label: "السجلات والتدقيق", icon: ScrollText, group: "الحاكمية" },
+  { key: "settings", label: "الإعدادات", icon: Settings, group: "الحاكمية" },
 ]
 
 export type Panel = "CARDS" | "AGENCY"
@@ -170,12 +171,17 @@ export function AppShell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
         <ScrollArea className="flex-1 px-3 py-3">
           <nav className="space-y-1">
-            {NAV.map((item) => {
+            <div className="px-3 pb-1 pt-1 text-[10px] font-black tracking-widest text-primary/90">مركز القيادة · CONTROL CENTER</div>
+            {NAV.map((item, idx) => {
+              const showGroup = idx === 0 || NAV[idx - 1].group !== item.group
               const Icon = item.icon
               const active = view === item.key && !(item.key === "leads" && leadId)
               return (
+                <Fragment key={item.key}>
+                {showGroup && (
+                  <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">{item.group}</div>
+                )}
                 <button
-                  key={item.key}
                   onClick={() => { if (item.key === "leads") setLeadId(null); setView(item.key) }}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -190,6 +196,7 @@ export function AppShell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                     <span className="ms-auto rounded-full bg-rose-500/20 px-1.5 text-[10px] font-bold text-rose-300">{unread}</span>
                   )}
                 </button>
+                </Fragment>
               )
             })}
           </nav>
