@@ -23,12 +23,8 @@ jobs:
           mkdir -p .vercel
           echo '{"projectId":"${{ secrets.VERCEL_PROJECT_ID }}","orgId":"${{ secrets.VERCEL_ORG_ID }}","projectName":"leados-v2"}' > .vercel/project.json
 
-      - name: Deploy to Vercel (production)
+      - name: Deploy (production)
+        run: bunx vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          npx --yes vercel@59 deploy --prod --yes --force \
-            --token "$VERCEL_TOKEN" \
-            --meta githubCommitSha="${{ github.sha }}" \
-            --meta githubCommitMessage="$(git log -1 --pretty=%s | head -c 200)" 2>&1 | tee deploy.log
-          grep -qE "Production|https://" deploy.log
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
