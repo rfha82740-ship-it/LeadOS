@@ -41,7 +41,7 @@ jobs:
           npx vercel@59 env rm GITHUB_TOKEN production --yes --token "$VERCEL_TOKEN" || true
           printf '%s' "$GH_PAT" | npx vercel@59 env add GITHUB_TOKEN production --token "$VERCEL_TOKEN"
           npx vercel@59 env rm GITHUB_REPO production --yes --token "$VERCEL_TOKEN" || true
-          printf '%s' "bdalhlymzaldyn7-ui/LeadOS" | npx vercel@59 env add GITHUB_REPO production --token "$VERCEL_TOKEN"
+          printf '%s' "rfha82740-ship-it/LeadOS" | npx vercel@59 env add GITHUB_REPO production --token "$VERCEL_TOKEN"
           echo "✅ GITHUB_TOKEN + GITHUB_REPO اتحطوا على الإنتاج"
           npx vercel@59 deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -5
 

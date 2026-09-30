@@ -12,7 +12,7 @@ dispatch() {
   [ -n "$GHTOKEN" ] || return 0
   code=$(curl -s -o /tmp/gh-dispatch.json -w "%{http_code}" --max-time 30 \
     -X POST -H "Authorization: Bearer $GHTOKEN" -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/bdalhlymzaldyn7-ui/LeadOS/actions/workflows/$1/dispatches" \
+    "https://api.github.com/repos/rfha82740-ship-it/LeadOS/actions/workflows/$1/dispatches" \
     -d '{"ref":"main"}')
   echo "$(date '+%m-%d %H:%M') dispatch $1 -> $code" >> db/backups/dispatch.log
 }

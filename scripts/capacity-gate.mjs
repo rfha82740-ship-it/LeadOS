@@ -6,7 +6,7 @@
 // الصفر اعتماديات (node:fetch) — تشتغل في Actions وفي أي مكان.
 import { readFileSync } from "node:fs"
 
-const REPO = process.env.GITHUB_REPOSITORY || "bdalhlymzaldyn7-ui/LeadOS"
+const REPO = process.env.GITHUB_REPOSITORY || "rfha82740-ship-it/LeadOS"
 const API = `https://api.github.com/repos/${REPO}`
 // توكن: GITHUB_TOKEN في Actions، أو متغير GH_TOKEN خارجيًا
 const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || ""
@@ -34,6 +34,11 @@ async function stopExists() {
 
 // عدّ التشغيلات النشطة لكل workflow (in_progress/queued/waiting) عبر صفحات كافية
 export async function capacityState() {
+  // استثناء التشغيلة الحالية من عدّ سلسلتها: من غير كده السلسلة بتحسب نفسها "نشطة"
+  // ومش بقدر تشعّل الجيل التالي بنفسها أبدًا (self-dispatch ميت). الاستثناء ده آمن لأن
+  // حماية التكرار باقية بكل طبقاتها: التشغيلات الأخرى نفس الworkflow بتتحسب + concurrency
+  // groups بترتيب جوب واحد pending + المشرف من جهة السيرفر بيفحص active>0 مستقل.
+  const selfRunId = Number(process.env.GITHUB_RUN_ID || 0)
   const perChain = {}
   for (const [event, c] of Object.entries(budget.chains)) perChain[event] = { ...c, event, active: 0 }
   let page = 1, seen = 0
@@ -43,6 +48,7 @@ export async function capacityState() {
     seen += list.length
     for (const r of list) {
       if (!["in_progress", "queued", "waiting"].includes(r.status)) continue
+      if (selfRunId && r.id === selfRunId) continue
       // المطابقة الأدق بمسار ملف الـworkflow (r.path = .github/workflows/x.yml)، والبديل اسم التشغيل
       const entry = Object.values(perChain).find(c => r.path === `.github/workflows/${c.workflow}` || r.name === c.name || (r.name || "").endsWith(c.name))
       if (entry) entry.active++

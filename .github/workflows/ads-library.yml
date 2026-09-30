@@ -71,8 +71,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f .github/STOP ]; then echo "🛑 .github/STOP موجودة — السلسلة واقفة"; exit 0; fi
-          node scripts/capacity-gate.mjs --chain adslib
-          gate=$?
+          gate=0
+          node scripts/capacity-gate.mjs --chain adslib || gate=$?
           if [ $gate -eq 2 ]; then echo "⏳ بوابة السعة أجّلت الجيل التالي — النبضة هتحييها"; exit 0; fi
           if [ $gate -ne 0 ]; then echo "⚠️ فشل بوابة السعة (exit $gate) — نكمل fail-open"; fi
           sleep 30
